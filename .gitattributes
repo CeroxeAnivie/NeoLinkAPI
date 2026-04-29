@@ -1,0 +1,4 @@
+# 源码和文档统一 LF，Windows 批处理脚本保留 CRLF，二进制 wrapper 不做文本转换。
+* text=auto eol=lf
+*.bat text eol=crlf
+*.jar binary

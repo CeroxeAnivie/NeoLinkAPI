@@ -1,0 +1,39 @@
+# Gradle
+.gradle
+.gradle-home/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# IntelliJ IDEA
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+bin/
+
+# Eclipse
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+# VS Code
+.vscode/
+
+# MacOS
+.DS_Store
+
+# 运行产物
+logs/
+/config.cfg
+eula.txt
+
+# 临时文件
+all_code.txt
+*.log
+*.temp
