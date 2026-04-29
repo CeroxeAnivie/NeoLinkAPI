@@ -154,8 +154,9 @@ class TCPTransformerTest {
     }
 
     private Object createTransformerInstance() throws Exception {
-        Constructor<?>[] constructors = TCPTransformer.class.getDeclaredConstructors();
-        Constructor<?> constructor = constructors[0];
+        Constructor<?> constructor = TCPTransformer.class.getDeclaredConstructor(
+                SecureSocket.class, Socket.class, boolean.class
+        );
         constructor.setAccessible(true);
         return constructor.newInstance(null, null, false);
     }

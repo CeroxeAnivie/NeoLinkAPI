@@ -17,7 +17,7 @@ public final class Debugger {
         return enabled;
     }
 
-    public static void debugOperation(Exception e) {
+    public static void debugOperation(boolean enabled, Exception e) {
         if (!enabled || e == null) {
             return;
         }
@@ -27,9 +27,17 @@ public final class Debugger {
         System.err.println("[NeoLinkAPI DEBUG] " + sw);
     }
 
-    public static void debugOperation(String infoMsg) {
+    public static void debugOperation(Exception e) {
+        debugOperation(enabled, e);
+    }
+
+    public static void debugOperation(boolean enabled, String infoMsg) {
         if (enabled) {
             System.out.println("[NeoLinkAPI DEBUG] " + infoMsg);
         }
+    }
+
+    public static void debugOperation(String infoMsg) {
+        debugOperation(enabled, infoMsg);
     }
 }

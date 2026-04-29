@@ -48,6 +48,7 @@ public class UDPTransformer implements Runnable {
     private final int mode;
     private final String localHost;
     private final int localPort;
+    private final boolean debugEnabled;
 
     // 每条 UDP 转发链路独占接收缓冲区，避免多连接并发时复用同一数组。
     private final byte[] receiveBuffer = new byte[BUFFER_LENGTH];
@@ -65,11 +66,22 @@ public class UDPTransformer implements Runnable {
     }
 
     public UDPTransformer(SecureSocket secureSender, DatagramSocket localReceiver, String localHost, int localPort) {
+        this(secureSender, localReceiver, localHost, localPort, Debugger.isEnabled());
+    }
+
+    public UDPTransformer(
+            SecureSocket secureSender,
+            DatagramSocket localReceiver,
+            String localHost,
+            int localPort,
+            boolean debugEnabled
+    ) {
         this.secureSocket = secureSender;
         this.plainSocket = localReceiver;
         this.mode = MODE_NEO_TO_LOCAL;
         this.localHost = localHost;
         this.localPort = localPort;
+        this.debugEnabled = debugEnabled;
     }
 
     /**
@@ -80,11 +92,22 @@ public class UDPTransformer implements Runnable {
     }
 
     public UDPTransformer(DatagramSocket localSender, SecureSocket secureReceiver, String localHost, int localPort) {
+        this(localSender, secureReceiver, localHost, localPort, Debugger.isEnabled());
+    }
+
+    public UDPTransformer(
+            DatagramSocket localSender,
+            SecureSocket secureReceiver,
+            String localHost,
+            int localPort,
+            boolean debugEnabled
+    ) {
         this.plainSocket = localSender;
         this.secureSocket = secureReceiver;
         this.mode = MODE_LOCAL_TO_NEO;
         this.localHost = localHost;
         this.localPort = localPort;
+        this.debugEnabled = debugEnabled;
     }
 
     /**
@@ -139,10 +162,14 @@ public class UDPTransformer implements Runnable {
                 DatagramPacket incomingPacket = new DatagramPacket(receiveBuffer, receiveBuffer.length);
                 plainSocket.receive(incomingPacket);
                 byte[] serializedData = serializeDatagramPacket(incomingPacket);
+                debug("Forwarding UDP packet from local service to NeoProxyServer. source="
+                        + incomingPacket.getAddress().getHostAddress() + ":" + incomingPacket.getPort()
+                        + ", payloadBytes=" + incomingPacket.getLength()
+                        + ", serializedBytes=" + serializedData.length);
                 secureSocket.sendBytes(serializedData);
             }
         } catch (IOException e) {
-            Debugger.debugOperation(e);
+            debug(e);
         }
     }
 
@@ -181,6 +208,7 @@ public class UDPTransformer implements Runnable {
         try {
             byte[] data;
             while ((data = secureSocket.receiveBytes()) != null) {
+                debug("Received UDP frame from NeoProxyServer. serializedBytes=" + data.length);
                 DatagramPacket datagramPacket = deserializeToDatagramPacket(data);
                 if (datagramPacket != null) {
                     DatagramPacket outgoingPacket = new DatagramPacket(
@@ -190,26 +218,39 @@ public class UDPTransformer implements Runnable {
                             localPort
                     );
                     plainSocket.send(outgoingPacket);
+                    debug("Forwarded UDP packet to local service. target=" + localHost + ":" + localPort
+                            + ", payloadBytes=" + datagramPacket.getLength());
                 }
             }
         } catch (Exception e) {
-            Debugger.debugOperation(e);
+            debug(e);
         }
     }
 
     @Override
     public void run() {
         try {
+            debug("UDP transformer started. mode=" + (mode == MODE_NEO_TO_LOCAL ? "NEO_TO_LOCAL" : "LOCAL_TO_NEO")
+                    + ", localTarget=" + localHost + ":" + localPort);
             if (mode == MODE_NEO_TO_LOCAL) {
                 transferDataToLocalServer();
             } else {
                 transferDataToNeoServer();
             }
         } catch (Exception e) {
-            Debugger.debugOperation(e);
+            debug(e);
         } finally {
             // 最终修复：无论正常结束还是异常结束，都确保关闭资源
             close(plainSocket, secureSocket);
+            debug("UDP transformer closed sockets.");
         }
+    }
+
+    private void debug(String message) {
+        Debugger.debugOperation(debugEnabled, message);
+    }
+
+    private void debug(Exception e) {
+        Debugger.debugOperation(debugEnabled, e);
     }
 }

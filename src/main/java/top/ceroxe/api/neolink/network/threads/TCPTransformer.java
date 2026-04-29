@@ -1,12 +1,10 @@
 package top.ceroxe.api.neolink.network.threads;
 
 import fun.ceroxe.api.net.SecureSocket;
-import top.ceroxe.api.neolink.network.InternetOperator;
 import top.ceroxe.api.neolink.util.Debugger;
 
 import java.net.Socket;
 
-import static top.ceroxe.api.neolink.util.Debugger.debugOperation;
 import static top.ceroxe.api.neolink.network.InternetOperator.*;
 
 /**
@@ -45,6 +43,7 @@ public class TCPTransformer implements Runnable {
     private final SecureSocket secureSocket;
     private final int mode;
     private final boolean enableProxyProtocol;
+    private final boolean debugEnabled;
 
     // 每条转发链路独占缓冲区，避免多连接并发时共享数组导致数据串扰。
     private final byte[] buffer = new byte[BUFFER_LENGTH];
@@ -55,10 +54,15 @@ public class TCPTransformer implements Runnable {
      * @param enableProxyProtocol 是否允许透传 Proxy Protocol 头
      */
     public TCPTransformer(SecureSocket secureSender, Socket localReceiver, boolean enableProxyProtocol) {
+        this(secureSender, localReceiver, enableProxyProtocol, Debugger.isEnabled());
+    }
+
+    public TCPTransformer(SecureSocket secureSender, Socket localReceiver, boolean enableProxyProtocol, boolean debugEnabled) {
         this.secureSocket = secureSender;
         this.plainSocket = localReceiver;
         this.mode = MODE_NEO_TO_LOCAL;
         this.enableProxyProtocol = enableProxyProtocol;
+        this.debugEnabled = debugEnabled;
     }
 
     /**
@@ -67,10 +71,15 @@ public class TCPTransformer implements Runnable {
      * @param enableProxyProtocol 此方向通常不使用，可传 false
      */
     public TCPTransformer(Socket localSender, SecureSocket secureReceiver, boolean enableProxyProtocol) {
+        this(localSender, secureReceiver, enableProxyProtocol, Debugger.isEnabled());
+    }
+
+    public TCPTransformer(Socket localSender, SecureSocket secureReceiver, boolean enableProxyProtocol, boolean debugEnabled) {
         this.plainSocket = localSender;
         this.secureSocket = secureReceiver;
         this.mode = MODE_LOCAL_TO_NEO;
         this.enableProxyProtocol = enableProxyProtocol;
+        this.debugEnabled = debugEnabled;
     }
 
     /**
@@ -82,12 +91,14 @@ public class TCPTransformer implements Runnable {
             int bytesRead;
             // 直接从 Socket 读入 64KB 缓冲区，减少额外拷贝，同时保持每个连接的数据隔离。
             while ((bytesRead = inputFromLocal.read(buffer)) != -1) {
+                debug("Forwarding TCP bytes from local service to NeoProxyServer. bytes=" + bytesRead);
                 secureSocket.sendBytes(buffer, 0, bytesRead);
             }
+            debug("Local TCP stream reached EOF. Sending NeoProxyServer EOF frame.");
             secureSocket.sendBytes(null); // 发送结束信号
             shutdownInput(plainSocket);
         } catch (Exception e) {
-            debugOperation(e);
+            debug(e);
             shutdownOutput(secureSocket);
             shutdownInput(plainSocket);
         }
@@ -105,6 +116,7 @@ public class TCPTransformer implements Runnable {
 
             while ((data = secureSocket.receiveBytes()) != null) {
                 if (data.length == 0) continue;
+                debug("Received TCP frame from NeoProxyServer. bytes=" + data.length);
 
                 if (isFirstPacket) {
                     isFirstPacket = false;
@@ -112,10 +124,12 @@ public class TCPTransformer implements Runnable {
                     if (isProxyProtocolV2Signature(data)) {
                         if (this.enableProxyProtocol) {
                             // 配置为开启：透传给本地后端
+                            debug("Proxy Protocol v2 header detected and passed through to local service.");
                             outputToLocal.write(data);
                         } else {
                             // 配置为关闭：只剥离 PPv2 头，保留同一帧中已经携带的真实业务数据。
                             int headerLength = proxyProtocolV2HeaderLength(data);
+                            debug("Proxy Protocol v2 header detected and stripped. headerBytes=" + headerLength);
                             if (data.length > headerLength) {
                                 outputToLocal.write(data, headerLength, data.length - headerLength);
                             }
@@ -133,10 +147,11 @@ public class TCPTransformer implements Runnable {
                 // 移除 flush()，因为 SocketOutputStream 默认是直接发送的，且没有 Buffer 就不需要 flush
                 // outputToLocal.flush();
             }
+            debug("NeoProxyServer TCP stream reached EOF.");
             shutdownInput(secureSocket);
             shutdownOutput(plainSocket);
         } catch (Exception e) {
-            debugOperation(e);
+            debug(e);
             shutdownInput(secureSocket);
             shutdownOutput(plainSocket);
         }
@@ -172,16 +187,27 @@ public class TCPTransformer implements Runnable {
     @Override
     public void run() {
         try {
+            debug("TCP transformer started. mode=" + (mode == MODE_NEO_TO_LOCAL ? "NEO_TO_LOCAL" : "LOCAL_TO_NEO")
+                    + ", ppv2Enabled=" + enableProxyProtocol);
             if (mode == MODE_NEO_TO_LOCAL) {
                 transferDataToLocalServer();
             } else {
                 transferDataToNeoServer();
             }
         } catch (Exception e) {
-            debugOperation(e);
+            debug(e);
         } finally {
             // 无论正常结束还是异常结束，都确保关闭资源
             close(plainSocket, secureSocket);
+            debug("TCP transformer closed sockets.");
         }
+    }
+
+    private void debug(String message) {
+        Debugger.debugOperation(debugEnabled, message);
+    }
+
+    private void debug(Exception e) {
+        Debugger.debugOperation(debugEnabled, e);
     }
 }

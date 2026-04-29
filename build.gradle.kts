@@ -1,10 +1,13 @@
 plugins {
     `java-library`
+    `maven-publish`
+    signing
     jacoco
 }
 
 group = "top.ceroxe.api"
-version = "6.0.1"
+version = "6.0.2"
+val mavenArtifactId = "neolinkapi"
 
 repositories {
     mavenCentral()
@@ -30,6 +33,7 @@ tasks.withType<JavaCompile>().configureEach {
 
 tasks.withType<Javadoc>().configureEach {
     options.encoding = "UTF-8"
+    (options as StandardJavadocDocletOptions).addStringOption("Xdoclint:none", "-quiet")
 }
 
 tasks.withType<ProcessResources>().configureEach {
@@ -68,4 +72,55 @@ tasks.jacocoTestReport {
         xml.required.set(true)
         html.required.set(true)
     }
+}
+
+publishing {
+    publications {
+        create<MavenPublication>("mavenJava") {
+            from(components["java"])
+            artifactId = mavenArtifactId
+
+            pom {
+                name.set("NeoLinkAPI")
+                description.set("Embeddable Java API client for NeoLink TCP/UDP tunnels.")
+                url.set("https://github.com/CeroxeAnivie/NeoLinkAPI")
+
+                licenses {
+                    license {
+                        name.set("MIT License")
+                        url.set("https://opensource.org/licenses/MIT")
+                        distribution.set("repo")
+                    }
+                }
+
+                developers {
+                    developer {
+                        id.set("CeroxeAnivie")
+                        name.set("Ceroxe")
+                        email.set("1591117599@qq.com")
+                        organization.set("Ceroxe")
+                        url.set("https://github.com/CeroxeAnivie")
+                    }
+                }
+
+                scm {
+                    connection.set("scm:git:git://github.com/CeroxeAnivie/NeoLinkAPI.git")
+                    developerConnection.set("scm:git:ssh://github.com:CeroxeAnivie/NeoLinkAPI.git")
+                    url.set("https://github.com/CeroxeAnivie/NeoLinkAPI")
+                }
+            }
+        }
+    }
+
+    repositories {
+        maven {
+            name = "centralStaging"
+            url = layout.buildDirectory.dir("repos/central-staging").get().asFile.toURI()
+        }
+    }
+}
+
+signing {
+    useGpgCmd()
+    sign(publishing.publications["mavenJava"])
 }

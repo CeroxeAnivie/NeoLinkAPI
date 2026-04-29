@@ -3,23 +3,35 @@ package top.ceroxe.api.neolink.network;
 import fun.ceroxe.api.net.SecureSocket;
 
 import java.io.IOException;
-import java.net.Authenticator;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
-import java.net.PasswordAuthentication;
 import java.net.Proxy;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 
 /**
  * Per-client proxy resolver.
  *
  * <p>The original client stored parsed proxy state in static fields because it
  * was a process-wide application. The API version keeps proxy state inside each
- * client instance so two embedding libraries can run independent tunnels in the
- * same JVM.</p>
+ * client instance. Proxy authentication is also performed during this object's
+ * own SOCKS5/HTTP CONNECT handshake instead of installing a JVM-wide
+ * {@link java.net.Authenticator}.</p>
  */
 public final class ProxyOperator {
     public static final int TO_NEO = 0;
     public static final int TO_LOCAL = 1;
+    private static final int SOCKS_VERSION = 0x05;
+    private static final int SOCKS_AUTH_VERSION = 0x01;
+    private static final int SOCKS_NO_AUTH = 0x00;
+    private static final int SOCKS_USER_PASS = 0x02;
+    private static final int SOCKS_CONNECT = 0x01;
+    private static final int SOCKS_ADDRESS_IPV4 = 0x01;
+    private static final int SOCKS_ADDRESS_DOMAIN = 0x03;
+    private static final int SOCKS_ADDRESS_IPV6 = 0x04;
+    private static final int MAX_SOCKS_FIELD_LENGTH = 255;
 
     private final ProxySettings toNeo;
     private final ProxySettings toLocal;
@@ -31,20 +43,36 @@ public final class ProxyOperator {
 
     public Socket getHandledSocket(int socketType, int targetPort, int connectTimeoutMillis) throws IOException {
         ProxySettings settings = settingsFor(socketType);
-        return withProxyAuthenticator(settings, () -> {
-            Socket socket = new Socket(settings.proxy());
-            socket.connect(new InetSocketAddress(settings.targetHost(), targetPort), connectTimeoutMillis);
+        Socket socket = new Socket();
+        try {
+            if (!settings.hasProxy()) {
+                socket.connect(new InetSocketAddress(settings.targetHost(), targetPort), connectTimeoutMillis);
+                return socket;
+            }
+
+            socket.connect(new InetSocketAddress(settings.proxyHost(), settings.proxyPort()), connectTimeoutMillis);
+            socket.setSoTimeout(connectTimeoutMillis);
+            if (settings.proxyType() == Proxy.Type.SOCKS) {
+                connectViaSocks5(socket, settings, targetPort);
+            } else if (settings.proxyType() == Proxy.Type.HTTP) {
+                connectViaHttp(socket, settings, targetPort);
+            } else {
+                throw new IOException("Unsupported proxy type: " + settings.proxyType());
+            }
+            socket.setSoTimeout(0);
             return socket;
-        });
+        } catch (IOException | RuntimeException e) {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+            }
+            throw e;
+        }
     }
 
     public SecureSocket getHandledSecureSocket(int socketType, int targetPort, int connectTimeoutMillis)
             throws IOException {
-        ProxySettings settings = settingsFor(socketType);
-        return withProxyAuthenticator(
-                settings,
-                () -> new SecureSocket(settings.proxy(), settings.targetHost(), targetPort, connectTimeoutMillis)
-        );
+        return new SecureSocket(getHandledSocket(socketType, targetPort, connectTimeoutMillis));
     }
 
     public boolean hasProxy(int socketType) {
@@ -122,24 +150,204 @@ public final class ProxyOperator {
         }
     }
 
-    private static <T> T withProxyAuthenticator(ProxySettings settings, IOExceptionSupplier<T> supplier)
-            throws IOException {
-        if (!settings.hasCredentials()) {
-            return supplier.get();
+    private static void connectViaSocks5(Socket socket, ProxySettings settings, int targetPort) throws IOException {
+        InputStream in = socket.getInputStream();
+        OutputStream out = socket.getOutputStream();
+
+        if (settings.hasCredentials()) {
+            out.write(new byte[]{SOCKS_VERSION, 0x02, SOCKS_NO_AUTH, SOCKS_USER_PASS});
+        } else {
+            out.write(new byte[]{SOCKS_VERSION, 0x01, SOCKS_NO_AUTH});
+        }
+        out.flush();
+
+        byte[] negotiation = readExact(in, 2);
+        if ((negotiation[0] & 0xFF) != SOCKS_VERSION) {
+            throw new IOException("Invalid SOCKS5 negotiation response.");
         }
 
-        Authenticator previous = Authenticator.getDefault();
-        try {
-            Authenticator.setDefault(new Authenticator() {
-                @Override
-                protected PasswordAuthentication getPasswordAuthentication() {
-                    return new PasswordAuthentication(settings.username(), settings.password().toCharArray());
-                }
-            });
-            return supplier.get();
-        } finally {
-            Authenticator.setDefault(previous);
+        int selectedMethod = negotiation[1] & 0xFF;
+        if (selectedMethod == 0xFF) {
+            throw new IOException("SOCKS5 proxy rejected all authentication methods.");
         }
+        if (selectedMethod == SOCKS_USER_PASS) {
+            authenticateSocks5(in, out, settings);
+        } else if (selectedMethod != SOCKS_NO_AUTH) {
+            throw new IOException("Unsupported SOCKS5 authentication method: " + selectedMethod);
+        }
+
+        out.write(SOCKS_VERSION);
+        out.write(SOCKS_CONNECT);
+        out.write(0x00);
+        writeSocksAddress(out, settings.targetHost());
+        writePort(out, targetPort);
+        out.flush();
+
+        byte[] response = readExact(in, 4);
+        if ((response[0] & 0xFF) != SOCKS_VERSION) {
+            throw new IOException("Invalid SOCKS5 connect response.");
+        }
+        int status = response[1] & 0xFF;
+        if (status != 0x00) {
+            throw new IOException("SOCKS5 connect failed with status: " + status);
+        }
+        consumeSocksBoundAddress(in, response[3] & 0xFF);
+    }
+
+    private static void authenticateSocks5(InputStream in, OutputStream out, ProxySettings settings) throws IOException {
+        byte[] username = settings.username().getBytes(StandardCharsets.UTF_8);
+        byte[] password = settings.password().getBytes(StandardCharsets.UTF_8);
+        if (username.length > MAX_SOCKS_FIELD_LENGTH || password.length > MAX_SOCKS_FIELD_LENGTH) {
+            throw new IOException("SOCKS5 username and password must be at most 255 bytes.");
+        }
+
+        out.write(SOCKS_AUTH_VERSION);
+        out.write(username.length);
+        out.write(username);
+        out.write(password.length);
+        out.write(password);
+        out.flush();
+
+        byte[] response = readExact(in, 2);
+        if ((response[0] & 0xFF) != SOCKS_AUTH_VERSION || response[1] != 0x00) {
+            throw new IOException("SOCKS5 username/password authentication failed.");
+        }
+    }
+
+    private static void writeSocksAddress(OutputStream out, String host) throws IOException {
+        String unbracketedHost = unbracketIpv6(host);
+        if (isIPv4Literal(unbracketedHost)) {
+            out.write(SOCKS_ADDRESS_IPV4);
+            out.write(java.net.InetAddress.getByName(unbracketedHost).getAddress());
+            return;
+        }
+        if (isIPv6Literal(unbracketedHost)) {
+            out.write(SOCKS_ADDRESS_IPV6);
+            out.write(java.net.InetAddress.getByName(unbracketedHost).getAddress());
+            return;
+        }
+
+        byte[] hostBytes = unbracketedHost.getBytes(StandardCharsets.UTF_8);
+        if (hostBytes.length > MAX_SOCKS_FIELD_LENGTH) {
+            throw new IOException("SOCKS5 target host is too long: " + unbracketedHost);
+        }
+        out.write(SOCKS_ADDRESS_DOMAIN);
+        out.write(hostBytes.length);
+        out.write(hostBytes);
+    }
+
+    private static void consumeSocksBoundAddress(InputStream in, int addressType) throws IOException {
+        switch (addressType) {
+            case SOCKS_ADDRESS_IPV4 -> readExact(in, 4);
+            case SOCKS_ADDRESS_IPV6 -> readExact(in, 16);
+            case SOCKS_ADDRESS_DOMAIN -> {
+                int length = readByte(in);
+                readExact(in, length);
+            }
+            default -> throw new IOException("Unsupported SOCKS5 bound address type: " + addressType);
+        }
+        readExact(in, 2);
+    }
+
+    private static void connectViaHttp(Socket socket, ProxySettings settings, int targetPort) throws IOException {
+        InputStream in = socket.getInputStream();
+        OutputStream out = socket.getOutputStream();
+        String authority = formatAuthority(settings.targetHost(), targetPort);
+        StringBuilder request = new StringBuilder()
+                .append("CONNECT ").append(authority).append(" HTTP/1.1\r\n")
+                .append("Host: ").append(authority).append("\r\n")
+                .append("Proxy-Connection: Keep-Alive\r\n");
+        if (settings.hasCredentials()) {
+            String token = settings.username() + ":" + settings.password();
+            request.append("Proxy-Authorization: Basic ")
+                    .append(Base64.getEncoder().encodeToString(token.getBytes(StandardCharsets.UTF_8)))
+                    .append("\r\n");
+        }
+        request.append("\r\n");
+        out.write(request.toString().getBytes(StandardCharsets.ISO_8859_1));
+        out.flush();
+
+        String responseHeader = readHttpHeader(in);
+        String statusLine = responseHeader.lines().findFirst().orElse("");
+        if (!statusLine.startsWith("HTTP/")) {
+            throw new IOException("Invalid HTTP proxy response: " + statusLine);
+        }
+        String[] parts = statusLine.split(" ", 3);
+        if (parts.length < 2 || !"200".equals(parts[1])) {
+            throw new IOException("HTTP proxy CONNECT failed: " + statusLine);
+        }
+    }
+
+    private static String readHttpHeader(InputStream in) throws IOException {
+        StringBuilder header = new StringBuilder();
+        int state = 0;
+        while (true) {
+            int next = readByte(in);
+            header.append((char) next);
+            state = switch (state) {
+                case 0 -> next == '\r' ? 1 : 0;
+                case 1 -> next == '\n' ? 2 : 0;
+                case 2 -> next == '\r' ? 3 : 0;
+                case 3 -> next == '\n' ? 4 : 0;
+                default -> state;
+            };
+            if (state == 4) {
+                return header.toString();
+            }
+            if (header.length() > 16 * 1024) {
+                throw new IOException("HTTP proxy response header is too large.");
+            }
+        }
+    }
+
+    private static byte[] readExact(InputStream in, int length) throws IOException {
+        byte[] buffer = new byte[length];
+        int offset = 0;
+        while (offset < length) {
+            int read = in.read(buffer, offset, length - offset);
+            if (read < 0) {
+                throw new IOException("Proxy closed the connection during handshake.");
+            }
+            offset += read;
+        }
+        return buffer;
+    }
+
+    private static int readByte(InputStream in) throws IOException {
+        int value = in.read();
+        if (value < 0) {
+            throw new IOException("Proxy closed the connection during handshake.");
+        }
+        return value;
+    }
+
+    private static void writePort(OutputStream out, int port) throws IOException {
+        out.write((port >>> 8) & 0xFF);
+        out.write(port & 0xFF);
+    }
+
+    private static String formatAuthority(String host, int port) {
+        String unbracketedHost = unbracketIpv6(host);
+        if (isIPv6Literal(unbracketedHost)) {
+            return "[" + unbracketedHost + "]:" + port;
+        }
+        return unbracketedHost + ":" + port;
+    }
+
+    private static String unbracketIpv6(String host) {
+        String trimmed = host.trim();
+        if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+            return trimmed.substring(1, trimmed.length() - 1);
+        }
+        return trimmed;
+    }
+
+    private static boolean isIPv4Literal(String host) {
+        return host.matches("\\d{1,3}(\\.\\d{1,3}){3}");
+    }
+
+    private static boolean isIPv6Literal(String host) {
+        return host.contains(":");
     }
 
     private record HostPort(String host, int port) {
@@ -157,13 +365,6 @@ public final class ProxyOperator {
             return new ProxySettings(Proxy.Type.DIRECT, "", 0, targetHost, null, null);
         }
 
-        Proxy proxy() {
-            if (!hasProxy()) {
-                return Proxy.NO_PROXY;
-            }
-            return new Proxy(proxyType, new InetSocketAddress(proxyHost, proxyPort));
-        }
-
         boolean hasProxy() {
             return proxyType != null && proxyType != Proxy.Type.DIRECT;
         }
@@ -171,10 +372,5 @@ public final class ProxyOperator {
         boolean hasCredentials() {
             return hasProxy() && username != null && password != null;
         }
-    }
-
-    @FunctionalInterface
-    private interface IOExceptionSupplier<T> {
-        T get() throws IOException;
     }
 }

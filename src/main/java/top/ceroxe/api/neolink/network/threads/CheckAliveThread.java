@@ -26,6 +26,7 @@ public final class CheckAliveThread implements Runnable {
     private final LongSupplier lastReceivedTimeSupplier;
     private final int heartbeatPacketDelay;
     private final BiConsumer<String, Throwable> errorHandler;
+    private final boolean debugEnabled;
     private final AtomicBoolean isRunning = new AtomicBoolean(false);
 
     private Thread heartbeatThreadInstance;
@@ -36,10 +37,21 @@ public final class CheckAliveThread implements Runnable {
             int heartbeatPacketDelay,
             BiConsumer<String, Throwable> errorHandler
     ) {
+        this(hookSocketSupplier, lastReceivedTimeSupplier, heartbeatPacketDelay, errorHandler, Debugger.isEnabled());
+    }
+
+    public CheckAliveThread(
+            Supplier<SecureSocket> hookSocketSupplier,
+            LongSupplier lastReceivedTimeSupplier,
+            int heartbeatPacketDelay,
+            BiConsumer<String, Throwable> errorHandler,
+            boolean debugEnabled
+    ) {
         this.hookSocketSupplier = Objects.requireNonNull(hookSocketSupplier, "hookSocketSupplier");
         this.lastReceivedTimeSupplier = Objects.requireNonNull(lastReceivedTimeSupplier, "lastReceivedTimeSupplier");
         this.heartbeatPacketDelay = requirePositive(heartbeatPacketDelay, "heartbeatPacketDelay");
         this.errorHandler = Objects.requireNonNull(errorHandler, "errorHandler");
+        this.debugEnabled = debugEnabled;
     }
 
     public Thread startThread() {
@@ -47,6 +59,7 @@ public final class CheckAliveThread implements Runnable {
             heartbeatThreadInstance = new Thread(this, "Client-CheckAliveThread");
             heartbeatThreadInstance.setDaemon(true);
             heartbeatThreadInstance.start();
+            Debugger.debugOperation(debugEnabled, "Heartbeat thread started.");
         }
         return heartbeatThreadInstance;
     }
@@ -55,10 +68,12 @@ public final class CheckAliveThread implements Runnable {
         if (isRunning.compareAndSet(true, false)) {
             Thread thread = heartbeatThreadInstance;
             if (thread != null) {
+                Debugger.debugOperation(debugEnabled, "Heartbeat thread stop requested.");
                 thread.interrupt();
                 if (thread != Thread.currentThread()) {
                     try {
                         thread.join(3000);
+                        Debugger.debugOperation(debugEnabled, "Heartbeat thread stopped.");
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                     }
@@ -70,10 +85,12 @@ public final class CheckAliveThread implements Runnable {
     @Override
     public void run() {
         AtomicInteger failureCount = new AtomicInteger(0);
+        Debugger.debugOperation(debugEnabled, "Heartbeat loop entered.");
 
         while (isRunning.get() && !Thread.currentThread().isInterrupted()) {
             SecureSocket hookSocket = hookSocketSupplier.get();
             if (hookSocket == null || hookSocket.isClosed()) {
+                Debugger.debugOperation(debugEnabled, "Heartbeat loop stopped because hook socket is not available.");
                 isRunning.set(false);
                 break;
             }
@@ -84,11 +101,13 @@ public final class CheckAliveThread implements Runnable {
                     synchronized (hookSocket) {
                         hookSocket.sendStr(HEARTBEAT_PACKET);
                     }
+                    Debugger.debugOperation(debugEnabled, "Heartbeat PING sent after " + timeSinceLastReceived + " ms idle.");
                     failureCount.set(0);
                 } catch (Exception e) {
                     int currentFailures = failureCount.incrementAndGet();
+                    Debugger.debugOperation(debugEnabled, "Heartbeat PING failed. consecutiveFailures=" + currentFailures);
                     if (currentFailures >= MAX_CONSECUTIVE_FAILURES) {
-                        Debugger.debugOperation(e);
+                        Debugger.debugOperation(debugEnabled, e);
                         errorHandler.accept("NeoProxyServer heartbeat failed.", e);
                         InternetOperator.close(hookSocket);
                         isRunning.set(false);
@@ -106,6 +125,7 @@ public final class CheckAliveThread implements Runnable {
                 break;
             }
         }
+        Debugger.debugOperation(debugEnabled, "Heartbeat loop exited.");
     }
 
     private static int requirePositive(int value, String fieldName) {

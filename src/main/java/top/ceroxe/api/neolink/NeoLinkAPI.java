@@ -26,6 +26,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 
 /**
@@ -35,18 +36,17 @@ import java.util.function.BiConsumer;
  * 可关闭的实例中。调用方只需要管理自身业务生命周期；API 内部负责在异常路径上释放
  * socket、线程和活动转发连接。</p>
  */
-public final class NeoLink implements AutoCloseable {
+public final class NeoLinkAPI implements AutoCloseable {
     private static final String UNKNOWN_HOST = "unknown";
-    private static final String PROTOCOL_LANGUAGE = "zh";
-    private static final int CONNECT_TIMEOUT_MILLIS = 10_000;
+    private static final int CONNECT_TIMEOUT_MILLIS = 5_000;
     private static final Runnable NOOP = () -> {
     };
 
     private final NeoLinkCfg cfg;
+    private final Object lifecycleLock = new Object();
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean closeRequested = new AtomicBoolean(false);
-    private final AtomicBoolean tcpEnabled = new AtomicBoolean(true);
-    private final AtomicBoolean udpEnabled = new AtomicBoolean(true);
+    private final AtomicLong lifecycleGeneration = new AtomicLong(0);
     private final Set<Closeable> activeConnections = ConcurrentHashMap.newKeySet();
 
     private volatile NeoLinkCfg runtimeCfg;
@@ -60,39 +60,65 @@ public final class NeoLink implements AutoCloseable {
     private volatile long lastReceivedTime = System.currentTimeMillis();
     private volatile int remotePort;
 
-    private volatile BiConsumer<InetSocketAddress, InetSocketAddress> onConnect = NeoLink::ignoreConnectionEvent;
-    private volatile BiConsumer<InetSocketAddress, InetSocketAddress> onDisconnect = NeoLink::ignoreConnectionEvent;
+    private volatile BiConsumer<InetSocketAddress, InetSocketAddress> onConnect = NeoLinkAPI::ignoreConnectionEvent;
+    private volatile BiConsumer<InetSocketAddress, InetSocketAddress> onDisconnect = NeoLinkAPI::ignoreConnectionEvent;
     private volatile Runnable onConnectNeoFailure = NOOP;
     private volatile Runnable onConnectLocalFailure = NOOP;
 
-    public NeoLink(NeoLinkCfg cfg) {
+    /**
+     * 绑定一个不可为空的配置对象。
+     *
+     * <p>{@link #start()} 会复制该配置，之后运行中的隧道不再读取原配置对象，
+     * 这样调用方在启动后继续修改 {@link NeoLinkCfg} 也不会产生半生效状态。</p>
+     *
+     * @param cfg 隧道配置
+     */
+    public NeoLinkAPI(NeoLinkCfg cfg) {
         this.cfg = Objects.requireNonNull(cfg, "cfg");
     }
 
-    public synchronized void start()
+    /**
+     * 建立控制连接、完成握手并启动服务端指令监听。
+     *
+     * <p>该方法会阻塞到握手成功或失败。TCP/UDP、PPv2、语言和 debug 等协议相关
+     * 配置必须在调用本方法之前写入 {@link NeoLinkCfg}，因为它们会参与握手或转发
+     * 线程初始化。</p>
+     *
+     * @throws IOException 控制连接、传输连接或本地下游连接发生 I/O 错误
+     * @throws UnsupportedVersionException 服务端拒绝当前 API 版本
+     * @throws NoSuchKeyException 服务端拒绝访问密钥
+     * @throws NoMoreNetworkFlowException 服务端通知剩余流量耗尽
+     */
+    public void start()
             throws IOException, UnsupportedVersionException, NoSuchKeyException, NoMoreNetworkFlowException {
-        if (isActive()) {
-            return;
-        }
+        synchronized (lifecycleLock) {
+            if (isActive()) {
+                debug("start() ignored because this NeoLinkAPI instance is already active.");
+                return;
+            }
 
-        runtimeCfg = cfg.copy();
-        proxyOperator = new ProxyOperator(
-                runtimeCfg.getRemoteDomainName(),
-                runtimeCfg.getLocalDomainName(),
-                runtimeCfg.getProxyIPToNeoServer(),
-                runtimeCfg.getProxyIPToLocalServer()
-        );
-        workerExecutor = Executors.newVirtualThreadPerTaskExecutor();
-        startupFuture = new CompletableFuture<>();
-        checkAliveThread = new CheckAliveThread(
-                () -> hookSocket,
-                () -> lastReceivedTime,
-                runtimeCfg.getHeartBeatPacketDelay(),
-                this::emitError
-        );
-        closeRequested.set(false);
-        running.set(true);
-        supervisorFuture = workerExecutor.submit(this::runCore);
+            long generation = lifecycleGeneration.incrementAndGet();
+            runtimeCfg = cfg.copy();
+            debug("Starting NeoLinkAPI tunnel. " + describeRuntimeConfig());
+            proxyOperator = new ProxyOperator(
+                    runtimeCfg.getRemoteDomainName(),
+                    runtimeCfg.getLocalDomainName(),
+                    runtimeCfg.getProxyIPToNeoServer(),
+                    runtimeCfg.getProxyIPToLocalServer()
+            );
+            workerExecutor = Executors.newVirtualThreadPerTaskExecutor();
+            startupFuture = new CompletableFuture<>();
+            checkAliveThread = new CheckAliveThread(
+                    () -> hookSocket,
+                    () -> lastReceivedTime,
+                    runtimeCfg.getHeartBeatPacketDelay(),
+                    this::emitError,
+                    isDebugEnabled()
+            );
+            closeRequested.set(false);
+            running.set(true);
+            supervisorFuture = workerExecutor.submit(() -> runCore(generation));
+        }
 
         try {
             awaitStartup();
@@ -105,61 +131,100 @@ public final class NeoLink implements AutoCloseable {
         }
     }
 
+    /**
+     * 查询隧道是否处于运行状态。
+     *
+     * @return {@code true} 表示控制连接仍处于活动状态
+     */
     public boolean isActive() {
         return running.get();
     }
 
+    /**
+     * 返回服务端下发的公网端口。
+     *
+     * @return 尚未收到端口时返回 {@code 0}
+     */
     public int getRemotePort() {
         return remotePort;
     }
 
-    public NeoLink setTCPEnabled(boolean enabled) throws IOException {
-        requireActiveTunnel();
-        tcpEnabled.set(enabled);
-        return this;
-    }
-
-    public NeoLink setUDPEnabled(boolean enabled) throws IOException {
-        requireActiveTunnel();
-        udpEnabled.set(enabled);
-        return this;
-    }
-
-    public NeoLink setOnConnect(BiConsumer<InetSocketAddress, InetSocketAddress> onConnect) {
+    /**
+     * 设置转发连接建立回调。
+     *
+     * @param onConnect 参数依次为远端访问者地址和本地下游地址
+     * @return 当前隧道对象，便于链式调用
+     */
+    public NeoLinkAPI setOnConnect(BiConsumer<InetSocketAddress, InetSocketAddress> onConnect) {
         this.onConnect = Objects.requireNonNull(onConnect, "onConnect");
         return this;
     }
 
-    public NeoLink setOnConnect(Runnable onConnect) {
+    /**
+     * 设置不需要地址参数的转发连接建立回调。
+     *
+     * @param onConnect 转发连接建立时执行的回调
+     * @return 当前隧道对象，便于链式调用
+     */
+    public NeoLinkAPI setOnConnect(Runnable onConnect) {
         Objects.requireNonNull(onConnect, "onConnect");
         return setOnConnect((source, target) -> onConnect.run());
     }
 
-    public NeoLink setOnDisconnect(BiConsumer<InetSocketAddress, InetSocketAddress> onDisconnect) {
+    /**
+     * 设置转发连接断开回调。
+     *
+     * @param onDisconnect 参数依次为远端访问者地址和本地下游地址
+     * @return 当前隧道对象，便于链式调用
+     */
+    public NeoLinkAPI setOnDisconnect(BiConsumer<InetSocketAddress, InetSocketAddress> onDisconnect) {
         this.onDisconnect = Objects.requireNonNull(onDisconnect, "onDisconnect");
         return this;
     }
 
-    public NeoLink setOnDisconnect(Runnable onDisconnect) {
+    /**
+     * 设置不需要地址参数的转发连接断开回调。
+     *
+     * @param onDisconnect 转发连接断开时执行的回调
+     * @return 当前隧道对象，便于链式调用
+     */
+    public NeoLinkAPI setOnDisconnect(Runnable onDisconnect) {
         Objects.requireNonNull(onDisconnect, "onDisconnect");
         return setOnDisconnect((source, target) -> onDisconnect.run());
     }
 
-    public NeoLink setOnConnectNeoFailure(Runnable onConnectNeoFailure) {
+    /**
+     * 设置连接 NeoProxyServer 传输端口失败时的回调。
+     *
+     * @param onConnectNeoFailure 远端传输端口连接失败时执行
+     * @return 当前隧道对象，便于链式调用
+     */
+    public NeoLinkAPI setOnConnectNeoFailure(Runnable onConnectNeoFailure) {
         this.onConnectNeoFailure = Objects.requireNonNull(onConnectNeoFailure, "onConnectNeoFailure");
         return this;
     }
 
-    public NeoLink setOnConnectLocalFailure(Runnable onConnectLocalFailure) {
+    /**
+     * 设置连接本地下游服务失败时的回调。
+     *
+     * @param onConnectLocalFailure 本地下游连接失败时执行
+     * @return 当前隧道对象，便于链式调用
+     */
+    public NeoLinkAPI setOnConnectLocalFailure(Runnable onConnectLocalFailure) {
         this.onConnectLocalFailure = Objects.requireNonNull(onConnectLocalFailure, "onConnectLocalFailure");
         return this;
     }
 
+    /**
+     * 返回当前 API 包版本。
+     *
+     * @return 从 {@code api.properties} 解析出的版本号
+     */
     public static String version() {
         return VersionInfo.VERSION;
     }
 
-    private void runCore() {
+    private void runCore(long generation) {
         try {
             connectToNeoServer();
             exchangeClientInfoWithServer();
@@ -167,38 +232,34 @@ public final class NeoLink implements AutoCloseable {
             if (activeCheckAliveThread != null) {
                 activeCheckAliveThread.startThread();
             }
-            completeStartup(null);
+            completeStartup(generation, null);
             listenForServerCommands();
         } catch (UnsupportedVersionException | NoSuchKeyException | NoMoreNetworkFlowException e) {
-            completeStartup(e);
+            completeStartup(generation, e);
             closeRequested.set(true);
             emitError(e.getMessage(), e);
         } catch (IOException e) {
-            completeStartup(e);
+            completeStartup(generation, e);
             if (running.get() && !closeRequested.get()) {
-                emitError("NeoLink 隧道异常停止。", e);
-                Debugger.debugOperation(e);
+                emitError("NeoLinkAPI 隧道异常停止。", e);
+                debug(e);
             }
         } catch (Exception e) {
-            IOException exception = toIOException("NeoLink 隧道异常停止。", e);
-            completeStartup(exception);
+            IOException exception = toIOException("NeoLinkAPI 隧道异常停止。", e);
+            completeStartup(generation, exception);
             if (running.get() && !closeRequested.get()) {
                 emitError(exception.getMessage(), exception);
-                Debugger.debugOperation(exception);
+                debug(exception);
             }
         } finally {
-            CheckAliveThread activeCheckAliveThread = checkAliveThread;
-            if (activeCheckAliveThread != null) {
-                activeCheckAliveThread.stopThread();
-            }
-            closeActiveConnection();
-            running.set(false);
-            shutdownWorkerExecutor();
+            cleanupLifecycle(generation);
         }
     }
 
     private void connectToNeoServer() throws IOException {
         if (proxyOperator.hasProxy(ProxyOperator.TO_NEO)) {
+            debug("Connecting to NeoProxyServer hook through per-instance proxy. target="
+                    + runtimeCfg.getRemoteDomainName() + ":" + runtimeCfg.getHookPort());
             hookSocket = proxyOperator.getHandledSecureSocket(
                     ProxyOperator.TO_NEO,
                     runtimeCfg.getHookPort(),
@@ -212,6 +273,9 @@ public final class NeoLink implements AutoCloseable {
         registerConnection(socket);
         connectingSocket = socket;
         try {
+            debug("Connecting to NeoProxyServer hook directly. target="
+                    + runtimeCfg.getRemoteDomainName() + ":" + runtimeCfg.getHookPort()
+                    + ", timeoutMs=" + CONNECT_TIMEOUT_MILLIS);
             socket.connect(
                     new InetSocketAddress(runtimeCfg.getRemoteDomainName(), runtimeCfg.getHookPort()),
                     CONNECT_TIMEOUT_MILLIS
@@ -230,11 +294,14 @@ public final class NeoLink implements AutoCloseable {
 
     private void exchangeClientInfoWithServer()
             throws IOException, UnsupportedVersionException, NoSuchKeyException, NoMoreNetworkFlowException {
-        hookSocket.sendStr(formatClientInfoString());
+        String clientInfo = formatClientInfoString();
+        debug("Sending client handshake. value=" + maskClientInfo(clientInfo));
+        hookSocket.sendStr(clientInfo);
         String serverResponse = hookSocket.receiveStr();
         if (serverResponse == null) {
             throw new IOException("NeoProxyServer 在握手阶段关闭了连接。");
         }
+        debug("Received server handshake response. value=" + serverResponse);
 
         if (isUnsupportedVersionResponse(serverResponse)) {
             hookSocket.sendStr("false");
@@ -258,16 +325,16 @@ public final class NeoLink implements AutoCloseable {
 
     String formatClientInfoString() {
         StringBuilder info = new StringBuilder()
-                .append(PROTOCOL_LANGUAGE)
+                .append(runtimeCfg.getLanguage())
                 .append(';')
                 .append(VersionInfo.VERSION)
                 .append(';')
                 .append(runtimeCfg.getKey())
                 .append(';');
-        if (tcpEnabled.get()) {
+        if (runtimeCfg.isTCPEnabled()) {
             info.append('T');
         }
-        if (udpEnabled.get()) {
+        if (runtimeCfg.isUDPEnabled()) {
             info.append('U');
         }
         return info.toString();
@@ -277,8 +344,11 @@ public final class NeoLink implements AutoCloseable {
         String message;
         while (running.get() && (message = hookSocket.receiveStr()) != null) {
             lastReceivedTime = System.currentTimeMillis();
+            debug("Received server message. value=" + message);
             if (message.startsWith(":>")) {
                 handleServerCommand(message.substring(2));
+            } else {
+                debug("Ignored non-command server message.");
             }
         }
         throw new IOException("NeoProxyServer 连接已关闭。");
@@ -288,13 +358,19 @@ public final class NeoLink implements AutoCloseable {
         String[] parts = command.split(";");
         switch (parts[0]) {
             case "sendSocketTCP" -> {
-                if (tcpEnabled.get() && parts.length >= 3) {
+                if (runtimeCfg.isTCPEnabled() && parts.length >= 3) {
+                    debug("Scheduling TCP tunnel. socketId=" + parts[1] + ", remoteAddress=" + parts[2]);
                     submitWorker(() -> createNewTCPConnection(parts[1], parts[2]));
+                } else {
+                    debug("Ignored TCP tunnel command because TCP is disabled or command is malformed.");
                 }
             }
             case "sendSocketUDP" -> {
-                if (udpEnabled.get() && parts.length >= 3) {
+                if (runtimeCfg.isUDPEnabled() && parts.length >= 3) {
+                    debug("Scheduling UDP tunnel. socketId=" + parts[1] + ", remoteAddress=" + parts[2]);
                     submitWorker(() -> createNewUDPConnection(parts[1], parts[2]));
+                } else {
+                    debug("Ignored UDP tunnel command because UDP is disabled or command is malformed.");
                 }
             }
             case "exitNoFlow" -> {
@@ -312,8 +388,9 @@ public final class NeoLink implements AutoCloseable {
     private void updateRemotePort(String value) {
         try {
             remotePort = Integer.parseInt(value);
+            debug("Remote public port updated. remotePort=" + remotePort);
         } catch (NumberFormatException e) {
-            Debugger.debugOperation("忽略未知服务端指令：" + value);
+            debug("Ignored unknown server command. value=" + value);
         }
     }
 
@@ -321,6 +398,7 @@ public final class NeoLink implements AutoCloseable {
         Socket localServerSocket = null;
         SecureSocket neoTransferSocket = null;
         try {
+            debug("Creating TCP tunnel. socketId=" + socketId + ", remoteAddress=" + remoteAddress);
             localServerSocket = openLocalSocket();
             neoTransferSocket = openTransferSocket();
             registerConnection(localServerSocket);
@@ -329,8 +407,18 @@ public final class NeoLink implements AutoCloseable {
 
             emitConnectionEvent(onConnect, remoteAddress);
 
-            TCPTransformer serverToLocalTask = new TCPTransformer(neoTransferSocket, localServerSocket, false);
-            TCPTransformer localToServerTask = new TCPTransformer(localServerSocket, neoTransferSocket, false);
+            TCPTransformer serverToLocalTask = new TCPTransformer(
+                    neoTransferSocket,
+                    localServerSocket,
+                    runtimeCfg.isPPV2Enabled(),
+                    isDebugEnabled()
+            );
+            TCPTransformer localToServerTask = new TCPTransformer(
+                    localServerSocket,
+                    neoTransferSocket,
+                    false,
+                    isDebugEnabled()
+            );
             ExecutorService executor = requireWorkerExecutor();
             Future<?> first = executor.submit(serverToLocalTask);
             Future<?> second = executor.submit(localToServerTask);
@@ -359,6 +447,7 @@ public final class NeoLink implements AutoCloseable {
         SecureSocket neoTransferSocket = null;
         DatagramSocket datagramSocket = null;
         try {
+            debug("Creating UDP tunnel. socketId=" + socketId + ", remoteAddress=" + remoteAddress);
             neoTransferSocket = openTransferSocket();
             datagramSocket = new DatagramSocket(new InetSocketAddress(InetAddress.getByName("0.0.0.0"), 0));
             registerConnection(neoTransferSocket);
@@ -371,13 +460,15 @@ public final class NeoLink implements AutoCloseable {
                     datagramSocket,
                     neoTransferSocket,
                     runtimeCfg.getLocalDomainName(),
-                    runtimeCfg.getLocalPort()
+                    runtimeCfg.getLocalPort(),
+                    isDebugEnabled()
             );
             UDPTransformer neoToLocalTask = new UDPTransformer(
                     neoTransferSocket,
                     datagramSocket,
                     runtimeCfg.getLocalDomainName(),
-                    runtimeCfg.getLocalPort()
+                    runtimeCfg.getLocalPort(),
+                    isDebugEnabled()
             );
             ExecutorService executor = requireWorkerExecutor();
             Future<?> first = executor.submit(localToNeoTask);
@@ -402,6 +493,9 @@ public final class NeoLink implements AutoCloseable {
 
     private Socket openLocalSocket() throws IOException {
         if (proxyOperator.hasProxy(ProxyOperator.TO_LOCAL)) {
+            debug("Connecting to local service through per-instance proxy. target="
+                    + runtimeCfg.getLocalDomainName() + ":" + runtimeCfg.getLocalPort()
+                    + ", timeoutMs=" + CONNECT_TIMEOUT_MILLIS);
             return proxyOperator.getHandledSocket(
                     ProxyOperator.TO_LOCAL,
                     runtimeCfg.getLocalPort(),
@@ -418,10 +512,14 @@ public final class NeoLink implements AutoCloseable {
             Socket socket = new Socket();
             registerConnection(socket);
             try {
+                debug("Trying local resolved address. address=" + address.getHostAddress()
+                        + ", port=" + port + ", timeoutMs=" + CONNECT_TIMEOUT_MILLIS);
                 socket.connect(new InetSocketAddress(address, port), CONNECT_TIMEOUT_MILLIS);
                 return socket;
             } catch (IOException e) {
                 lastException = e;
+                debug("Local resolved address failed. address=" + address.getHostAddress()
+                        + ", port=" + port + ", error=" + e.getMessage());
                 InternetOperator.close(socket);
                 unregisterConnection(socket);
             }
@@ -431,6 +529,9 @@ public final class NeoLink implements AutoCloseable {
 
     private SecureSocket openTransferSocket() throws IOException {
         if (proxyOperator.hasProxy(ProxyOperator.TO_NEO)) {
+            debug("Connecting to NeoProxyServer transfer port through per-instance proxy. target="
+                    + runtimeCfg.getRemoteDomainName() + ":" + runtimeCfg.getHostConnectPort()
+                    + ", timeoutMs=" + CONNECT_TIMEOUT_MILLIS);
             return proxyOperator.getHandledSecureSocket(
                     ProxyOperator.TO_NEO,
                     runtimeCfg.getHostConnectPort(),
@@ -441,6 +542,9 @@ public final class NeoLink implements AutoCloseable {
         Socket socket = new Socket();
         registerConnection(socket);
         try {
+            debug("Connecting to NeoProxyServer transfer port directly. target="
+                    + runtimeCfg.getRemoteDomainName() + ":" + runtimeCfg.getHostConnectPort()
+                    + ", timeoutMs=" + CONNECT_TIMEOUT_MILLIS);
             socket.connect(
                     new InetSocketAddress(runtimeCfg.getRemoteDomainName(), runtimeCfg.getHostConnectPort()),
                     CONNECT_TIMEOUT_MILLIS
@@ -458,12 +562,12 @@ public final class NeoLink implements AutoCloseable {
         try {
             first.get();
         } catch (Exception e) {
-            Debugger.debugOperation(e);
+            debug(e);
         }
         try {
             second.get();
         } catch (Exception e) {
-            Debugger.debugOperation(e);
+            debug(e);
         } finally {
             InternetOperator.close(trackedConnections);
             unregisterConnection(trackedConnections);
@@ -474,35 +578,39 @@ public final class NeoLink implements AutoCloseable {
     private void submitWorker(Runnable task) {
         ExecutorService executor = workerExecutor;
         if (executor == null || executor.isShutdown() || !running.get()) {
+            debug("Worker task ignored because executor is not available.");
             return;
         }
 
         try {
             executor.submit(task);
         } catch (RuntimeException e) {
-            Debugger.debugOperation(e);
+            debug(e);
         }
     }
 
     private ExecutorService requireWorkerExecutor() throws IOException {
         ExecutorService executor = workerExecutor;
         if (executor == null || executor.isShutdown()) {
-            throw new IOException("NeoLink 隧道已经停止，无法创建新的转发连接。");
+            throw new IOException("NeoLinkAPI 隧道已经停止，无法创建新的转发连接。");
         }
         return executor;
     }
 
     @Override
     public void close() {
-        closeRequested.set(true);
-        running.set(false);
-        CheckAliveThread activeCheckAliveThread = checkAliveThread;
-        if (activeCheckAliveThread != null) {
-            activeCheckAliveThread.stopThread();
+        synchronized (lifecycleLock) {
+            debug("close() requested.");
+            closeRequested.set(true);
+            running.set(false);
+            CheckAliveThread activeCheckAliveThread = checkAliveThread;
+            if (activeCheckAliveThread != null) {
+                activeCheckAliveThread.stopThread();
+            }
+            closeActiveConnection();
+            shutdownWorkerExecutor();
+            completeStartup(new IOException("NeoLinkAPI 启动已取消。"));
         }
-        closeActiveConnection();
-        shutdownWorkerExecutor();
-        completeStartup(new IOException("NeoLink 启动已取消。"));
     }
 
     private void awaitStartup()
@@ -511,7 +619,7 @@ public final class NeoLink implements AutoCloseable {
             startupFuture.get();
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IOException("等待 NeoLink 启动时线程被中断。", e);
+            throw new IOException("等待 NeoLinkAPI 启动时线程被中断。", e);
         } catch (ExecutionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof IOException ioException) {
@@ -532,11 +640,18 @@ public final class NeoLink implements AutoCloseable {
             if (cause instanceof Error error) {
                 throw error;
             }
-            throw new IOException("NeoLink 启动失败。", cause);
+            throw new IOException("NeoLinkAPI 启动失败。", cause);
         }
     }
 
     private void completeStartup(Throwable failure) {
+        completeStartup(lifecycleGeneration.get(), failure);
+    }
+
+    private void completeStartup(long generation, Throwable failure) {
+        if (!isCurrentGeneration(generation)) {
+            return;
+        }
         CompletableFuture<Void> future = startupFuture;
         if (future == null || future.isDone()) {
             return;
@@ -548,13 +663,29 @@ public final class NeoLink implements AutoCloseable {
         }
     }
 
-    private void requireActiveTunnel() throws IOException {
-        if (!running.get()) {
-            throw new IOException("NeoLink 隧道未启动，必须先调用 start() 才能切换 TCP 或 UDP 状态。");
+    private void cleanupLifecycle(long generation) {
+        synchronized (lifecycleLock) {
+            if (!isCurrentGeneration(generation)) {
+                debug("Ignoring cleanup from a stale lifecycle generation. generation=" + generation);
+                return;
+            }
+
+            CheckAliveThread activeCheckAliveThread = checkAliveThread;
+            if (activeCheckAliveThread != null) {
+                activeCheckAliveThread.stopThread();
+            }
+            closeActiveConnection();
+            running.set(false);
+            shutdownWorkerExecutor();
         }
     }
 
+    private boolean isCurrentGeneration(long generation) {
+        return lifecycleGeneration.get() == generation;
+    }
+
     private void closeActiveConnection() {
+        debug("Closing active control and transfer connections.");
         InternetOperator.close(connectingSocket, hookSocket);
         closeAllTrackedConnections();
         connectingSocket = null;
@@ -600,7 +731,7 @@ public final class NeoLink implements AutoCloseable {
         try {
             handler.accept(parseRemoteAddress(remoteAddress), target);
         } catch (RuntimeException e) {
-            Debugger.debugOperation(e);
+            debug(e);
         }
     }
 
@@ -608,14 +739,14 @@ public final class NeoLink implements AutoCloseable {
         try {
             callback.run();
         } catch (RuntimeException e) {
-            Debugger.debugOperation(e);
+            debug(e);
         }
     }
 
     private void emitError(String message, Throwable cause) {
-        Debugger.debugOperation(message);
+        debug("ERROR: " + message);
         if (cause instanceof Exception exception) {
-            Debugger.debugOperation(exception);
+            debug(exception);
         }
     }
 
@@ -701,5 +832,53 @@ public final class NeoLink implements AutoCloseable {
     }
 
     private static void ignoreConnectionEvent(InetSocketAddress source, InetSocketAddress target) {
+    }
+
+    private boolean isDebugEnabled() {
+        NeoLinkCfg activeCfg = runtimeCfg;
+        return Debugger.isEnabled() || (activeCfg != null ? activeCfg.isDebugMsg() : cfg.isDebugMsg());
+    }
+
+    private void debug(String message) {
+        Debugger.debugOperation(isDebugEnabled(), message);
+    }
+
+    private void debug(Exception e) {
+        Debugger.debugOperation(isDebugEnabled(), e);
+    }
+
+    private String describeRuntimeConfig() {
+        NeoLinkCfg activeCfg = runtimeCfg;
+        return "remote=" + activeCfg.getRemoteDomainName()
+                + ", hookPort=" + activeCfg.getHookPort()
+                + ", connectPort=" + activeCfg.getHostConnectPort()
+                + ", local=" + activeCfg.getLocalDomainName() + ":" + activeCfg.getLocalPort()
+                + ", language=" + activeCfg.getLanguage()
+                + ", tcpEnabled=" + activeCfg.isTCPEnabled()
+                + ", udpEnabled=" + activeCfg.isUDPEnabled()
+                + ", ppv2Enabled=" + activeCfg.isPPV2Enabled()
+                + ", heartbeatDelayMs=" + activeCfg.getHeartBeatPacketDelay()
+                + ", proxyToNeo=" + (activeCfg.getProxyIPToNeoServer().isBlank() ? "direct" : "configured")
+                + ", proxyToLocal=" + (activeCfg.getProxyIPToLocalServer().isBlank() ? "direct" : "configured")
+                + ", connectTimeoutMs=" + CONNECT_TIMEOUT_MILLIS;
+    }
+
+    private static String maskClientInfo(String clientInfo) {
+        String[] parts = clientInfo.split(";", -1);
+        if (parts.length < 4) {
+            return clientInfo;
+        }
+        parts[2] = maskSecret(parts[2]);
+        return String.join(";", parts);
+    }
+
+    private static String maskSecret(String secret) {
+        if (secret == null || secret.isBlank()) {
+            return "";
+        }
+        if (secret.length() <= 4) {
+            return "****";
+        }
+        return secret.substring(0, 2) + "****" + secret.substring(secret.length() - 2);
     }
 }
