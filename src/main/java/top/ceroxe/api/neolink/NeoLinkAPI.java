@@ -41,7 +41,11 @@ import java.util.function.IntConsumer;
  */
 public final class NeoLinkAPI implements AutoCloseable {
     private static final String UNKNOWN_HOST = "unknown";
+    private static final String WINDOWS_UPDATE_CLIENT_TYPE = "exe";
+    private static final String DEFAULT_UPDATE_CLIENT_TYPE = "jar";
+    private static final String NO_UPDATE_URL_RESPONSE = "false";
     private static final int CONNECT_TIMEOUT_MILLIS = 5_000;
+    private static final int UPDATE_URL_TIMEOUT_MILLIS = 15_000;
     private static final Runnable NOOP = () -> {
     };
     private static final Consumer<NeoLinkState> NOOP_STATE_HANDLER = state -> {
@@ -52,7 +56,7 @@ public final class NeoLinkAPI implements AutoCloseable {
     };
     private static final BiConsumer<String, Throwable> NOOP_ERROR_HANDLER = (message, cause) -> {
     };
-    private static final Function<String, Boolean> REJECT_UNSUPPORTED_VERSION_UPDATE = response -> false;
+    private static final Function<String, Boolean> REQUEST_UNSUPPORTED_VERSION_UPDATE = response -> true;
 
     private final NeoLinkCfg cfg;
     private final Object lifecycleLock = new Object();
@@ -69,6 +73,7 @@ public final class NeoLinkAPI implements AutoCloseable {
     private volatile SecureSocket hookSocket;
     private volatile Socket connectingSocket;
     private volatile Future<?> supervisorFuture;
+    private volatile String updateUrl;
     private volatile long lastReceivedTime = System.currentTimeMillis();
     private volatile int remotePort;
     private volatile NeoLinkState state = NeoLinkState.STOPPED;
@@ -81,7 +86,7 @@ public final class NeoLinkAPI implements AutoCloseable {
     private volatile BiConsumer<String, Throwable> onError = NOOP_ERROR_HANDLER;
     private volatile Consumer<String> onServerMessage = NOOP_MESSAGE_HANDLER;
     private volatile IntConsumer onRemotePortChanged = NOOP_PORT_HANDLER;
-    private volatile Function<String, Boolean> unsupportedVersionDecision = REJECT_UNSUPPORTED_VERSION_UPDATE;
+    private volatile Function<String, Boolean> unsupportedVersionDecision = REQUEST_UNSUPPORTED_VERSION_UPDATE;
     private volatile BiConsumer<String, Throwable> debugSink = NeoLinkAPI::defaultDebugSink;
 
     /**
@@ -119,6 +124,8 @@ public final class NeoLinkAPI implements AutoCloseable {
 
             long generation = lifecycleGeneration.incrementAndGet();
             runtimeCfg = cfg.copy();
+            updateUrl = null;
+            remotePort = 0;
             notifyStarting = moveStateTo(NeoLinkState.STARTING);
             debug("Starting NeoLinkAPI tunnel. " + describeRuntimeConfig());
             proxyOperator = new ProxyOperator(
@@ -172,6 +179,31 @@ public final class NeoLinkAPI implements AutoCloseable {
      */
     public int getRemotePort() {
         return remotePort;
+    }
+
+    /**
+     * 返回当前控制链路使用的安全 socket。
+     *
+     * <p>该引用只用于观测或与外部已有协议集成；调用方不应主动关闭它，否则会中断
+     * NeoLinkAPI 的心跳、服务端指令监听和生命周期清理。</p>
+     *
+     * @return 控制链路未建立或已经释放时返回 {@code null}
+     */
+    public SecureSocket getHookSocket() {
+        return hookSocket;
+    }
+
+    /**
+     * 返回服务端在版本不兼容流程中下发的客户端更新地址。
+     *
+     * <p>只有握手阶段触发 {@link UnsupportedVersionException} 且 NeoProxyServer 实际返回
+     * 非空 URL 时才会有值。普通启动成功、服务端没有返回 URL 或返回 {@code false} 时均为
+     * {@code null}。</p>
+     *
+     * @return 最近一次版本不兼容握手获得的更新地址，没有可用地址时返回 {@code null}
+     */
+    public String getUpdateURL() {
+        return updateUrl;
     }
 
     /**
@@ -239,7 +271,8 @@ public final class NeoLinkAPI implements AutoCloseable {
      * 设置不支持当前版本时是否向服务端声明“调用方会尝试更新”。
      *
      * <p>API 不执行下载或替换文件。该决策函数只负责返回要发给服务端的布尔值：
-     * {@code true} 表示宿主应用将自行处理更新，{@code false} 表示不会自动更新。</p>
+     * {@code true} 表示宿主应用需要服务端下发更新 URL 并将自行处理更新，{@code false} 表示不请求更新 URL。
+     * 默认值为 {@code true}，以便 {@link #getUpdateURL()} 能在版本不兼容异常后暴露服务端返回的地址。</p>
      *
      * @param unsupportedVersionDecision 输入为服务端原始响应，返回是否请求更新
      * @return 当前隧道对象，便于链式调用
@@ -425,7 +458,7 @@ public final class NeoLinkAPI implements AutoCloseable {
         debug("Received server handshake response. value=" + serverResponse);
 
         if (isUnsupportedVersionResponse(serverResponse)) {
-            hookSocket.sendStr(Boolean.toString(shouldRequestUnsupportedVersionUpdate(serverResponse)));
+            handleUnsupportedVersionResponse(serverResponse);
             throw new UnsupportedVersionException(serverResponse);
         }
 
@@ -442,6 +475,24 @@ public final class NeoLinkAPI implements AutoCloseable {
         }
 
         lastReceivedTime = System.currentTimeMillis();
+    }
+
+    private void handleUnsupportedVersionResponse(String serverResponse) {
+        updateUrl = null;
+        boolean requestUpdate = shouldRequestUnsupportedVersionUpdate(serverResponse);
+        try {
+            hookSocket.sendStr(Boolean.toString(requestUpdate));
+            if (!requestUpdate) {
+                return;
+            }
+
+            hookSocket.sendStr(updateClientType());
+            updateUrl = normalizeUpdateURL(hookSocket.receiveStr(UPDATE_URL_TIMEOUT_MILLIS));
+            debug("Unsupported-version update URL negotiated. available=" + (updateUrl != null));
+        } catch (IOException e) {
+            debug("Unable to finish unsupported-version update URL negotiation.");
+            debug(e);
+        }
     }
 
     String formatClientInfoString() {
@@ -916,6 +967,23 @@ public final class NeoLinkAPI implements AutoCloseable {
             debug(e);
             return false;
         }
+    }
+
+    private static String normalizeUpdateURL(String response) {
+        if (response == null) {
+            return null;
+        }
+
+        String normalized = response.trim();
+        if (normalized.isEmpty() || NO_UPDATE_URL_RESPONSE.equalsIgnoreCase(normalized)) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private static String updateClientType() {
+        String osName = System.getProperty("os.name", "");
+        return osName.toLowerCase().contains("windows") ? WINDOWS_UPDATE_CLIENT_TYPE : DEFAULT_UPDATE_CLIENT_TYPE;
     }
 
     private void transitionTo(NeoLinkState newState) {

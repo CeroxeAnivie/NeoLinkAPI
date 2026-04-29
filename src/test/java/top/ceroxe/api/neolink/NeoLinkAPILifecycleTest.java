@@ -102,6 +102,9 @@ class NeoLinkAPILifecycleTest {
             assertTrue(remotePortUpdated.await(3, TimeUnit.SECONDS));
             assertTrue(serverMessageReceived.await(3, TimeUnit.SECONDS));
 
+            assertNotNull(neoLink.getHookSocket());
+            assertTrue(neoLink.getHookSocket().isConnected());
+            assertNull(neoLink.getUpdateURL());
             assertEquals(45678, remotePort.get());
             assertEquals(45678, neoLink.getRemotePort());
             assertEquals("traffic warning from server", serverMessage.get());
@@ -114,6 +117,7 @@ class NeoLinkAPILifecycleTest {
             assertEquals(NeoLinkState.STOPPED, neoLink.getState());
             assertTrue(states.contains(NeoLinkState.STOPPING));
             assertTrue(states.contains(NeoLinkState.STOPPED));
+            assertNull(neoLink.getHookSocket());
             if (serverError.get() != null) {
                 fail("Lifecycle test server failed", serverError.get());
             }
@@ -121,7 +125,7 @@ class NeoLinkAPILifecycleTest {
     }
 
     @Test
-    @DisplayName("运行期断线应走错误回调并进入 FAILED 后清理为 STOPPED")
+    @DisplayName("runtime disconnect emits error and fails before stopped")
     void runtimeDisconnectEmitsErrorAndFailsBeforeStopped() throws Exception {
         CountDownLatch errorReceived = new CountDownLatch(1);
         CountDownLatch stopped = new CountDownLatch(1);
@@ -176,6 +180,7 @@ class NeoLinkAPILifecycleTest {
         AtomicReference<Throwable> serverError = new AtomicReference<>();
         AtomicReference<String> handshake = new AtomicReference<>();
         AtomicReference<String> updateReply = new AtomicReference<>();
+        AtomicReference<String> updateType = new AtomicReference<>();
         AtomicReference<String> decisionInput = new AtomicReference<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
@@ -185,6 +190,8 @@ class NeoLinkAPILifecycleTest {
                     String response = "Unsupported version:6.0.1|6.0.2";
                     socket.sendStr(response);
                     updateReply.set(socket.receiveStr(2000));
+                    updateType.set(socket.receiveStr(2000));
+                    socket.sendStr("https://download.example.test/neolink");
                     replyReceived.countDown();
                 } catch (Throwable e) {
                     serverError.compareAndSet(null, e);
@@ -208,6 +215,8 @@ class NeoLinkAPILifecycleTest {
             assertEquals("en;0.0.1-test;key;", handshake.get());
             assertEquals("Unsupported version:6.0.1|6.0.2", decisionInput.get());
             assertEquals("true", updateReply.get());
+            assertEquals(expectedUpdateType(), updateType.get());
+            assertEquals("https://download.example.test/neolink", neoLink.getUpdateURL());
             serverThread.join(3000);
             if (serverError.get() != null) {
                 fail("Lifecycle test server failed", serverError.get());
@@ -258,5 +267,9 @@ class NeoLinkAPILifecycleTest {
                 fail("Lifecycle test server failed", serverError.get());
             }
         }
+    }
+
+    private static String expectedUpdateType() {
+        return System.getProperty("os.name", "").toLowerCase().contains("windows") ? "exe" : "jar";
     }
 }

@@ -10,7 +10,7 @@ Maven：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi</artifactId>
-    <version>6.1.0</version>
+    <version>6.2.0</version>
 </dependency>
 ```
 
@@ -18,7 +18,7 @@ Gradle Kotlin DSL：
 
 ```kotlin
 dependencies {
-    implementation("top.ceroxe.api:neolinkapi:6.1.0")
+    implementation("top.ceroxe.api:neolinkapi:6.2.0")
 }
 ```
 
@@ -26,7 +26,7 @@ Gradle Groovy DSL：
 
 ```groovy
 dependencies {
-    implementation 'top.ceroxe.api:neolinkapi:6.1.0'
+    implementation 'top.ceroxe.api:neolinkapi:6.2.0'
 }
 ```
 
@@ -101,6 +101,7 @@ public class Example {
             Thread.currentThread().join();
         } catch (UnsupportedVersionException e) {
             System.err.println("unsupported version: " + e.serverResponse());
+            System.err.println("update URL: " + tunnel.getUpdateURL());
         } catch (NoSuchKeyException e) {
             System.err.println("key rejected: " + e.serverResponse());
         } catch (NoMoreNetworkFlowException e) {
@@ -239,6 +240,8 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - `close()`：关闭控制连接、心跳线程、所有活动 TCP/UDP 转发连接和内部 executor，不抛受检异常。
 - `isActive()`：返回隧道是否仍处于活动状态。
 - `getRemotePort()`：读取服务端下发的公网端口；尚未收到时为 `0`。
+- `getHookSocket()`：读取当前控制链路 `SecureSocket`；控制链路未建立或已经释放时为 `null`。
+- `getUpdateURL()`：读取版本不兼容流程中 NPS 返回的更新 URL；未触发 `UnsupportedVersionException`、服务端未返回 URL 或返回 `false` 时为 `null`。
 - `getState()`：读取最近一次生命周期状态。
 - `version()`：静态方法，返回当前 API 版本。
 
@@ -256,7 +259,7 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - `setOnDisconnect(Runnable)`：不关心地址时使用的连接断开回调。
 - `setOnConnectNeoFailure(Runnable)`：连接 NeoProxyServer 传输端口失败时触发。
 - `setOnConnectLocalFailure(Runnable)`：连接本地下游服务失败时触发。
-- `setUnsupportedVersionDecision(Function<String, Boolean>)`：服务端拒绝当前版本时，决定是否回复 `true` 表示调用方将自行处理更新；API 不执行下载或替换文件。
+- `setUnsupportedVersionDecision(Function<String, Boolean>)`：服务端拒绝当前版本时，决定是否回复 `true` 表示调用方需要 NPS 返回更新 URL；默认回复 `true`，API 只缓存 URL，不执行下载或替换文件。
 - `setDebugSink(BiConsumer<String, Throwable>)`：实例级调试事件接收器，只接收诊断细节，不承载业务错误。
 
 所有调用方回调都会被异常隔离。回调抛出的 `RuntimeException` 会进入 debug sink，不会中断隧道生命周期线程或转发线程。
