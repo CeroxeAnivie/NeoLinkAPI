@@ -54,6 +54,8 @@ public final class NeoLinkAPI implements AutoCloseable {
     };
     private static final IntConsumer NOOP_PORT_HANDLER = port -> {
     };
+    private static final ConnectionEventHandler NOOP_CONNECTION_EVENT_HANDLER = (protocol, source, target) -> {
+    };
     private static final BiConsumer<String, Throwable> NOOP_ERROR_HANDLER = (message, cause) -> {
     };
     private static final Function<String, Boolean> REQUEST_UNSUPPORTED_VERSION_UPDATE = response -> true;
@@ -78,8 +80,8 @@ public final class NeoLinkAPI implements AutoCloseable {
     private volatile int remotePort;
     private volatile NeoLinkState state = NeoLinkState.STOPPED;
 
-    private volatile BiConsumer<InetSocketAddress, InetSocketAddress> onConnect = NeoLinkAPI::ignoreConnectionEvent;
-    private volatile BiConsumer<InetSocketAddress, InetSocketAddress> onDisconnect = NeoLinkAPI::ignoreConnectionEvent;
+    private volatile ConnectionEventHandler onConnect = NOOP_CONNECTION_EVENT_HANDLER;
+    private volatile ConnectionEventHandler onDisconnect = NOOP_CONNECTION_EVENT_HANDLER;
     private volatile Runnable onConnectNeoFailure = NOOP;
     private volatile Runnable onConnectLocalFailure = NOOP;
     private volatile Consumer<NeoLinkState> onStateChanged = NOOP_STATE_HANDLER;
@@ -298,57 +300,27 @@ public final class NeoLinkAPI implements AutoCloseable {
         this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
         return this;
     }
-
     /**
-     * 设置转发连接建立回调。
+     * Sets callback executed when a forwarding connection is established.
      *
-     * @param onConnect 参数依次为远端访问者地址和本地下游地址
-     * @return 当前隧道对象，便于链式调用
+     * @param onConnect callback receiving protocol, remote visitor address and local downstream address
+     * @return current tunnel instance for chaining
      */
-    public NeoLinkAPI setOnConnect(BiConsumer<InetSocketAddress, InetSocketAddress> onConnect) {
+    public NeoLinkAPI setOnConnect(ConnectionEventHandler onConnect) {
         this.onConnect = Objects.requireNonNull(onConnect, "onConnect");
         return this;
     }
 
     /**
-     * 设置不需要地址参数的转发连接建立回调。
+     * Sets callback executed when a forwarding connection is closed.
      *
-     * @param onConnect 转发连接建立时执行的回调
-     * @return 当前隧道对象，便于链式调用
+     * @param onDisconnect callback receiving protocol, remote visitor address and local downstream address
+     * @return current tunnel instance for chaining
      */
-    public NeoLinkAPI setOnConnect(Runnable onConnect) {
-        Objects.requireNonNull(onConnect, "onConnect");
-        return setOnConnect((source, target) -> onConnect.run());
-    }
-
-    /**
-     * 设置转发连接断开回调。
-     *
-     * @param onDisconnect 参数依次为远端访问者地址和本地下游地址
-     * @return 当前隧道对象，便于链式调用
-     */
-    public NeoLinkAPI setOnDisconnect(BiConsumer<InetSocketAddress, InetSocketAddress> onDisconnect) {
+    public NeoLinkAPI setOnDisconnect(ConnectionEventHandler onDisconnect) {
         this.onDisconnect = Objects.requireNonNull(onDisconnect, "onDisconnect");
         return this;
     }
-
-    /**
-     * 设置不需要地址参数的转发连接断开回调。
-     *
-     * @param onDisconnect 转发连接断开时执行的回调
-     * @return 当前隧道对象，便于链式调用
-     */
-    public NeoLinkAPI setOnDisconnect(Runnable onDisconnect) {
-        Objects.requireNonNull(onDisconnect, "onDisconnect");
-        return setOnDisconnect((source, target) -> onDisconnect.run());
-    }
-
-    /**
-     * 设置连接 NeoProxyServer 传输端口失败时的回调。
-     *
-     * @param onConnectNeoFailure 远端传输端口连接失败时执行
-     * @return 当前隧道对象，便于链式调用
-     */
     public NeoLinkAPI setOnConnectNeoFailure(Runnable onConnectNeoFailure) {
         this.onConnectNeoFailure = Objects.requireNonNull(onConnectNeoFailure, "onConnectNeoFailure");
         return this;
@@ -372,6 +344,22 @@ public final class NeoLinkAPI implements AutoCloseable {
      */
     public static String version() {
         return VersionInfo.VERSION;
+    }
+
+    /**
+     * Transport type used by a forwarding connection.
+     */
+    public enum TransportProtocol {
+        TCP,
+        UDP
+    }
+
+    /**
+     * Receives forwarding connection events with the protocol resolved by NeoLinkAPI.
+     */
+    @FunctionalInterface
+    public interface ConnectionEventHandler {
+        void accept(TransportProtocol protocol, InetSocketAddress source, InetSocketAddress target);
     }
 
     private void runCore(long generation) {
@@ -578,7 +566,7 @@ public final class NeoLinkAPI implements AutoCloseable {
             registerConnection(neoTransferSocket);
             neoTransferSocket.sendStr("TCP" + ";" + socketId);
 
-            emitConnectionEvent(onConnect, remoteAddress);
+            emitConnectionEvent(onConnect, TransportProtocol.TCP, remoteAddress);
 
             TCPTransformer serverToLocalTask = new TCPTransformer(
                     neoTransferSocket,
@@ -599,7 +587,14 @@ public final class NeoLinkAPI implements AutoCloseable {
             Future<?> second = executor.submit(localToServerTask);
             Socket trackedLocalSocket = localServerSocket;
             SecureSocket trackedTransferSocket = neoTransferSocket;
-            executor.submit(() -> awaitTransformers(first, second, remoteAddress, trackedLocalSocket, trackedTransferSocket));
+            executor.submit(() -> awaitTransformers(
+                    TransportProtocol.TCP,
+                    first,
+                    second,
+                    remoteAddress,
+                    trackedLocalSocket,
+                    trackedTransferSocket
+            ));
         } catch (Exception e) {
             IOException exception;
             if (localServerSocket == null) {
@@ -629,7 +624,7 @@ public final class NeoLinkAPI implements AutoCloseable {
             registerConnection(datagramSocket);
             neoTransferSocket.sendStr("UDP" + ";" + socketId);
 
-            emitConnectionEvent(onConnect, remoteAddress);
+            emitConnectionEvent(onConnect, TransportProtocol.UDP, remoteAddress);
 
             UDPTransformer localToNeoTask = new UDPTransformer(
                     datagramSocket,
@@ -652,7 +647,14 @@ public final class NeoLinkAPI implements AutoCloseable {
             Future<?> second = executor.submit(neoToLocalTask);
             SecureSocket trackedTransferSocket = neoTransferSocket;
             DatagramSocket trackedDatagramSocket = datagramSocket;
-            executor.submit(() -> awaitTransformers(first, second, remoteAddress, trackedTransferSocket, trackedDatagramSocket));
+            executor.submit(() -> awaitTransformers(
+                    TransportProtocol.UDP,
+                    first,
+                    second,
+                    remoteAddress,
+                    trackedTransferSocket,
+                    trackedDatagramSocket
+            ));
         } catch (Exception e) {
             IOException exception;
             if (neoTransferSocket == null) {
@@ -735,7 +737,13 @@ public final class NeoLinkAPI implements AutoCloseable {
         }
     }
 
-    private void awaitTransformers(Future<?> first, Future<?> second, String remoteAddress, Closeable... trackedConnections) {
+    private void awaitTransformers(
+            TransportProtocol protocol,
+            Future<?> first,
+            Future<?> second,
+            String remoteAddress,
+            Closeable... trackedConnections
+    ) {
         try {
             first.get();
         } catch (Exception e) {
@@ -748,7 +756,7 @@ public final class NeoLinkAPI implements AutoCloseable {
         } finally {
             InternetOperator.close(trackedConnections);
             unregisterConnection(trackedConnections);
-            emitConnectionEvent(onDisconnect, remoteAddress);
+            emitConnectionEvent(onDisconnect, protocol, remoteAddress);
         }
     }
 
@@ -907,14 +915,14 @@ public final class NeoLinkAPI implements AutoCloseable {
         workerExecutor = null;
     }
 
-    private void emitConnectionEvent(BiConsumer<InetSocketAddress, InetSocketAddress> handler, String remoteAddress) {
+    private void emitConnectionEvent(ConnectionEventHandler handler, TransportProtocol protocol, String remoteAddress) {
         NeoLinkCfg activeCfg = runtimeCfg;
         InetSocketAddress target = InetSocketAddress.createUnresolved(
                 activeCfg.getLocalDomainName(),
                 activeCfg.getLocalPort()
         );
         try {
-            handler.accept(parseRemoteAddress(remoteAddress), target);
+            handler.accept(protocol, parseRemoteAddress(remoteAddress), target);
         } catch (RuntimeException e) {
             debug(e);
         }
@@ -1088,9 +1096,6 @@ public final class NeoLinkAPI implements AutoCloseable {
         } catch (NumberFormatException e) {
             return -1;
         }
-    }
-
-    private static void ignoreConnectionEvent(InetSocketAddress source, InetSocketAddress target) {
     }
 
     private boolean isDebugEnabled() {

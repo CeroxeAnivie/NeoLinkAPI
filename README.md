@@ -10,7 +10,7 @@ Maven：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi</artifactId>
-    <version>6.2.0</version>
+    <version>6.3.0</version>
 </dependency>
 ```
 
@@ -18,7 +18,7 @@ Gradle Kotlin DSL：
 
 ```kotlin
 dependencies {
-    implementation("top.ceroxe.api:neolinkapi:6.2.0")
+    implementation("top.ceroxe.api:neolinkapi:6.3.0")
 }
 ```
 
@@ -26,7 +26,7 @@ Gradle Groovy DSL：
 
 ```groovy
 dependencies {
-    implementation 'top.ceroxe.api:neolinkapi:6.2.0'
+    implementation 'top.ceroxe.api:neolinkapi:6.3.0'
 }
 ```
 
@@ -73,11 +73,11 @@ public class Example {
                         cause.printStackTrace();
                     }
                 })
-                .setOnConnect((source, target) -> {
-                    System.out.println("connected: " + source + " -> " + target);
+                .setOnConnect((protocol, source, target) -> {
+                    System.out.println("connected " + protocol + ": " + source + " -> " + target);
                 })
-                .setOnDisconnect((source, target) -> {
-                    System.out.println("disconnected: " + source + " -> " + target);
+                .setOnDisconnect((protocol, source, target) -> {
+                    System.out.println("disconnected " + protocol + ": " + source + " -> " + target);
                 })
                 .setOnConnectNeoFailure(() -> {
                     System.err.println("failed to connect NeoProxyServer transfer port");
@@ -253,10 +253,8 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - `setOnError(BiConsumer<String, Throwable>)`：运行期业务可见错误回调，例如心跳失败、控制连接异常关闭、流量耗尽或转发连接创建失败。
 - `setOnServerMessage(Consumer<String>)`：服务端普通文本消息回调；非 `:>` 控制命令的消息会通过这里交给调用方展示或记录。
 - `setOnRemotePortChanged(IntConsumer)`：服务端下发公网端口时触发；`getRemotePort()` 会同步更新。
-- `setOnConnect(BiConsumer<InetSocketAddress, InetSocketAddress>)`：转发连接建立时触发，参数为远端访问者地址和本地下游地址。
-- `setOnConnect(Runnable)`：不关心地址时使用的连接建立回调。
-- `setOnDisconnect(BiConsumer<InetSocketAddress, InetSocketAddress>)`：转发连接断开时触发，参数语义同 `setOnConnect`。
-- `setOnDisconnect(Runnable)`：不关心地址时使用的连接断开回调。
+- `setOnConnect(NeoLinkAPI.ConnectionEventHandler)`：转发连接建立时触发，参数依次为协议、远端访问者地址和本地下游地址。`protocol` 为 `TCP` 或 `UDP`。
+- `setOnDisconnect(NeoLinkAPI.ConnectionEventHandler)`：转发连接断开时触发，参数语义同 `setOnConnect`。
 - `setOnConnectNeoFailure(Runnable)`：连接 NeoProxyServer 传输端口失败时触发。
 - `setOnConnectLocalFailure(Runnable)`：连接本地下游服务失败时触发。
 - `setUnsupportedVersionDecision(Function<String, Boolean>)`：服务端拒绝当前版本时，决定是否回复 `true` 表示调用方需要 NPS 返回更新 URL；默认回复 `true`，API 只缓存 URL，不执行下载或替换文件。
@@ -286,3 +284,19 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - 连接超时统一为 `5000ms`，覆盖连接 NeoProxyServer 控制端口、传输端口和本地下游服务。
 - Debug 日志是英文，包含握手、连接、代理、转发、关闭等细节；密钥在日志中会被遮蔽。推荐通过 `setDebugSink` 接管实例级调试输出，避免库直接污染宿主应用控制台。
 - 业务错误走 `setOnError`，生命周期走 `setOnStateChanged`，服务端普通消息走 `setOnServerMessage`，调试细节走 `setDebugSink`。不要用 debug 日志推断业务状态。
+
+## 6.3.0 connection callbacks
+
+`setOnConnect` and `setOnDisconnect` now accept only `NeoLinkAPI.ConnectionEventHandler`:
+
+```java
+.setOnConnect((protocol, source, target) -> {
+    System.out.println(protocol + " connected: " + source + " -> " + target);
+})
+.setOnDisconnect((protocol, source, target) -> {
+    System.out.println(protocol + " disconnected: " + source + " -> " + target);
+})
+```
+
+The `protocol` value is `NeoLinkAPI.TransportProtocol.TCP` or `NeoLinkAPI.TransportProtocol.UDP`, resolved by the API when it creates the forwarding channel.
+The old two-address and no-address overloads were removed so callers cannot accidentally label UDP traffic as TCP.

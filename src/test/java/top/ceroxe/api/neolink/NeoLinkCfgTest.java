@@ -3,6 +3,10 @@ package top.ceroxe.api.neolink;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Method;
+import java.net.InetSocketAddress;
+import java.util.concurrent.atomic.AtomicReference;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("NeoLinkCfg 公开 API 配置")
@@ -37,6 +41,7 @@ class NeoLinkCfgTest {
         assertFalse(cfg.isDebugMsg());
         assertEquals(NeoLinkCfg.ZH_CH, cfg.getLanguage());
         assertEquals(NeoLinkAPI.version(), cfg.getClientVersion());
+        assertEquals("6.3.0", NeoLinkAPI.version());
     }
 
     @Test
@@ -93,9 +98,51 @@ class NeoLinkCfgTest {
         }));
         assertSame(neoLink, neoLink.setOnRemotePortChanged(port -> {
         }));
+        assertSame(neoLink, neoLink.setOnConnect((protocol, source, target) -> {
+        }));
+        assertSame(neoLink, neoLink.setOnDisconnect((protocol, source, target) -> {
+        }));
         assertSame(neoLink, neoLink.setUnsupportedVersionDecision(response -> false));
         assertSame(neoLink, neoLink.setDebugSink((message, cause) -> {
         }));
+    }
+
+    @Test
+    @DisplayName("connection events expose transport protocol and normalized addresses")
+    void connectionEventsExposeProtocolAndAddresses() throws Exception {
+        NeoLinkCfg cfg = new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "key", 25565);
+        NeoLinkAPI neoLink = new NeoLinkAPI(cfg);
+        AtomicReference<NeoLinkAPI.TransportProtocol> protocolRef = new AtomicReference<>();
+        AtomicReference<InetSocketAddress> sourceRef = new AtomicReference<>();
+        AtomicReference<InetSocketAddress> targetRef = new AtomicReference<>();
+
+        var runtimeCfgField = NeoLinkAPI.class.getDeclaredField("runtimeCfg");
+        runtimeCfgField.setAccessible(true);
+        runtimeCfgField.set(neoLink, cfg.copy());
+
+        Method emitConnectionEvent = NeoLinkAPI.class.getDeclaredMethod(
+                "emitConnectionEvent",
+                NeoLinkAPI.ConnectionEventHandler.class,
+                NeoLinkAPI.TransportProtocol.class,
+                String.class
+        );
+        emitConnectionEvent.setAccessible(true);
+        emitConnectionEvent.invoke(
+                neoLink,
+                (NeoLinkAPI.ConnectionEventHandler) (protocol, source, target) -> {
+                    protocolRef.set(protocol);
+                    sourceRef.set(source);
+                    targetRef.set(target);
+                },
+                NeoLinkAPI.TransportProtocol.UDP,
+                "203.0.113.10:4567"
+        );
+
+        assertEquals(NeoLinkAPI.TransportProtocol.UDP, protocolRef.get());
+        assertEquals("203.0.113.10", sourceRef.get().getHostString());
+        assertEquals(4567, sourceRef.get().getPort());
+        assertEquals("localhost", targetRef.get().getHostString());
+        assertEquals(25565, targetRef.get().getPort());
     }
 
     @Test

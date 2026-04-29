@@ -6,7 +6,8 @@ plugins {
 }
 
 group = "top.ceroxe.api"
-version = "6.2.0"
+val apiVersion = "6.3.0"
+version = apiVersion
 val mavenArtifactId = "neolinkapi"
 
 repositories {
@@ -39,6 +40,7 @@ tasks.withType<Javadoc>().configureEach {
 tasks.withType<ProcessResources>().configureEach {
     filteringCharset = "UTF-8"
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    inputs.property("apiVersion", apiVersion)
     filesMatching("api.properties") {
         expand(
             "version" to project.version.toString()
