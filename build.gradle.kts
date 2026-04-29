@@ -1,12 +1,16 @@
+import java.time.Duration
+import java.time.temporal.ChronoUnit
+
 plugins {
     `java-library`
     `maven-publish`
     signing
     jacoco
+    id("com.gradleup.nmcp.aggregation") version "1.4.4"
 }
 
 group = "top.ceroxe.api"
-val apiVersion = "6.3.0"
+val apiVersion = "7.0.0"
 version = apiVersion
 val mavenArtifactId = "neolinkapi"
 
@@ -23,7 +27,8 @@ java {
 }
 
 dependencies {
-    api("fun.ceroxe.api:ceroxe-core:1.0.0")
+    api("top.ceroxe.api:ceroxe-core:2.0.0")
+    implementation("top.ceroxe.api:ceroxe-detector:2.0.0")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
 }
@@ -125,4 +130,16 @@ publishing {
 signing {
     useGpgCmd()
     sign(publishing.publications["mavenJava"])
+}
+
+nmcpAggregation {
+    centralPortal {
+        username = providers.gradleProperty("centralUsername").orNull.orEmpty()
+        password = providers.gradleProperty("centralPassword").orNull.orEmpty()
+        publishingType = "AUTOMATIC"
+        publicationName = "NeoLinkAPI-$version"
+        validationTimeout = Duration.of(30, ChronoUnit.MINUTES)
+    }
+
+    publishAllProjectsProbablyBreakingProjectIsolation()
 }

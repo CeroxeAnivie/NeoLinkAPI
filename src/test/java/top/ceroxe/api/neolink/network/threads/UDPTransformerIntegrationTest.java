@@ -1,7 +1,7 @@
 package top.ceroxe.api.neolink.network.threads;
 
-import fun.ceroxe.api.net.SecureServerSocket;
-import fun.ceroxe.api.net.SecureSocket;
+import top.ceroxe.api.net.SecureServerSocket;
+import top.ceroxe.api.net.SecureSocket;
 import org.junit.jupiter.api.*;
 
 import java.io.IOException;

@@ -1,7 +1,8 @@
 package top.ceroxe.api.neolink;
 
-import fun.ceroxe.api.net.SecureServerSocket;
-import fun.ceroxe.api.net.SecureSocket;
+import top.ceroxe.api.OshiUtils;
+import top.ceroxe.api.net.SecureServerSocket;
+import top.ceroxe.api.net.SecureSocket;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.ceroxe.api.neolink.exception.UnsupportedVersionException;
@@ -270,6 +271,6 @@ class NeoLinkAPILifecycleTest {
     }
 
     private static String expectedUpdateType() {
-        return System.getProperty("os.name", "").toLowerCase().contains("windows") ? "exe" : "jar";
+        return OshiUtils.isWindows() ? "exe" : "jar";
     }
 }

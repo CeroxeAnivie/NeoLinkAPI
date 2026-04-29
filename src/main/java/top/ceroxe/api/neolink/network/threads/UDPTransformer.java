@@ -1,6 +1,6 @@
 package top.ceroxe.api.neolink.network.threads;
 
-import fun.ceroxe.api.net.SecureSocket;
+import top.ceroxe.api.net.SecureSocket;
 import top.ceroxe.api.neolink.util.Debugger;
 
 import java.io.IOException;

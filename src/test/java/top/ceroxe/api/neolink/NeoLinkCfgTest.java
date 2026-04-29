@@ -15,20 +15,20 @@ class NeoLinkCfgTest {
     @DisplayName("构造函数强制要求远程域名、Hook 端口、连接端口、密钥和本地端口")
     void constructorRequiresAllMandatoryValues() {
         assertThrows(IllegalArgumentException.class, () -> new NeoLinkCfg("", 44801, 44802, "key", 25565));
-        assertThrows(IllegalArgumentException.class, () -> new NeoLinkCfg("p.ceroxe.fun", 0, 44802, "key", 25565));
-        assertThrows(IllegalArgumentException.class, () -> new NeoLinkCfg("p.ceroxe.fun", 44801, 0, "key", 25565));
-        assertThrows(IllegalArgumentException.class, () -> new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "", 25565));
-        assertThrows(IllegalArgumentException.class, () -> new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "key", 0));
+        assertThrows(IllegalArgumentException.class, () -> new NeoLinkCfg("top.ceroxe.example", 0, 44802, "key", 25565));
+        assertThrows(IllegalArgumentException.class, () -> new NeoLinkCfg("top.ceroxe.example", 44801, 0, "key", 25565));
+        assertThrows(IllegalArgumentException.class, () -> new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "", 25565));
+        assertThrows(IllegalArgumentException.class, () -> new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "key", 0));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "key", 25565).setClientVersion(" ")
+                () -> new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "key", 25565).setClientVersion(" ")
         );
     }
 
     @Test
     @DisplayName("默认值与 config.cfg 的 API 语义保持一致")
     void defaultsMatchDocumentedApiSemantics() {
-        NeoLinkCfg cfg = new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "key", 25565);
+        NeoLinkCfg cfg = new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "key", 25565);
 
         assertEquals("localhost", cfg.getLocalDomainName());
         assertEquals("key", cfg.getKey());
@@ -41,13 +41,13 @@ class NeoLinkCfgTest {
         assertFalse(cfg.isDebugMsg());
         assertEquals(NeoLinkCfg.ZH_CH, cfg.getLanguage());
         assertEquals(NeoLinkAPI.version(), cfg.getClientVersion());
-        assertEquals("6.3.0", NeoLinkAPI.version());
+        assertEquals("7.0.0", NeoLinkAPI.version());
     }
 
     @Test
     @DisplayName("setter 修改后的值与 getter 保持一致")
     void settersStaySynchronizedWithGetters() {
-        NeoLinkCfg cfg = new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "key", 25565)
+        NeoLinkCfg cfg = new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "key", 25565)
                 .setRemoteDomainName("nps.example.com")
                 .setHookPort(30001)
                 .setHostConnectPort(30002)
@@ -84,7 +84,7 @@ class NeoLinkCfgTest {
     @Test
     @DisplayName("NeoLinkAPI facade 暴露规定的失败回调 setter")
     void neoLinkExposesFailureCallbackSetters() {
-        NeoLinkAPI neoLink = new NeoLinkAPI(new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "key", 25565));
+        NeoLinkAPI neoLink = new NeoLinkAPI(new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "key", 25565));
 
         assertSame(neoLink, neoLink.setOnConnectNeoFailure(() -> {
         }));
@@ -110,7 +110,7 @@ class NeoLinkCfgTest {
     @Test
     @DisplayName("connection events expose transport protocol and normalized addresses")
     void connectionEventsExposeProtocolAndAddresses() throws Exception {
-        NeoLinkCfg cfg = new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "key", 25565);
+        NeoLinkCfg cfg = new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "key", 25565);
         NeoLinkAPI neoLink = new NeoLinkAPI(cfg);
         AtomicReference<NeoLinkAPI.TransportProtocol> protocolRef = new AtomicReference<>();
         AtomicReference<InetSocketAddress> sourceRef = new AtomicReference<>();
@@ -148,7 +148,7 @@ class NeoLinkCfgTest {
     @Test
     @DisplayName("TCP 和 UDP 默认都开启，握手标志应为 TU")
     void tcpAndUdpAreEnabledByDefault() throws Exception {
-        NeoLinkCfg cfg = new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "key", 25565);
+        NeoLinkCfg cfg = new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "key", 25565);
         NeoLinkAPI neoLink = new NeoLinkAPI(cfg);
 
         var runtimeCfgField = NeoLinkAPI.class.getDeclaredField("runtimeCfg");
@@ -161,7 +161,7 @@ class NeoLinkCfgTest {
     @Test
     @DisplayName("TCP 和 UDP 开关在配置阶段决定握手标志")
     void transportSwitchesAreAppliedBeforeHandshake() throws Exception {
-        NeoLinkCfg cfg = new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "key", 25565)
+        NeoLinkCfg cfg = new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "key", 25565)
                 .setLanguage(NeoLinkCfg.EN_US)
                 .setTCPEnabled(false)
                 .setUDPEnabled(true);
@@ -178,7 +178,7 @@ class NeoLinkCfgTest {
     @Test
     @DisplayName("语言配置应接受常见别名并归一化为协议值")
     void languageAliasesAreNormalized() {
-        NeoLinkCfg cfg = new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "key", 25565);
+        NeoLinkCfg cfg = new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "key", 25565);
 
         cfg.setLanguage("en-us");
         assertEquals(NeoLinkCfg.EN_US, cfg.getLanguage());

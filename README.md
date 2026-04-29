@@ -10,7 +10,7 @@ Maven：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi</artifactId>
-    <version>6.3.0</version>
+    <version>7.0.0</version>
 </dependency>
 ```
 
@@ -18,7 +18,7 @@ Gradle Kotlin DSL：
 
 ```kotlin
 dependencies {
-    implementation("top.ceroxe.api:neolinkapi:6.3.0")
+    implementation("top.ceroxe.api:neolinkapi:7.0.0")
 }
 ```
 
@@ -26,7 +26,7 @@ Gradle Groovy DSL：
 
 ```groovy
 dependencies {
-    implementation 'top.ceroxe.api:neolinkapi:6.3.0'
+    implementation 'top.ceroxe.api:neolinkapi:7.0.0'
 }
 ```
 
@@ -44,7 +44,7 @@ import java.io.IOException;
 
 public class Example {
     public static void main(String[] args) {
-        NeoLinkCfg cfg = new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "your-key", 25565)
+        NeoLinkCfg cfg = new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "your-key", 25565)
                 .setLocalDomainName("localhost")
                 .setTCPEnabled(true)
                 .setUDPEnabled(true)
@@ -285,7 +285,12 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - Debug 日志是英文，包含握手、连接、代理、转发、关闭等细节；密钥在日志中会被遮蔽。推荐通过 `setDebugSink` 接管实例级调试输出，避免库直接污染宿主应用控制台。
 - 业务错误走 `setOnError`，生命周期走 `setOnStateChanged`，服务端普通消息走 `setOnServerMessage`，调试细节走 `setDebugSink`。不要用 debug 日志推断业务状态。
 
-## 6.3.0 connection callbacks
+## 7.0.0 Ceroxe API namespace
+
+NeoLinkAPI now depends on `top.ceroxe.api:ceroxe-core:2.0.0` and `top.ceroxe.api:ceroxe-detector:2.0.0`.
+All dependency coordinates and public examples now use the current `top.ceroxe` namespace.
+
+## Connection callbacks
 
 `setOnConnect` and `setOnDisconnect` now accept only `NeoLinkAPI.ConnectionEventHandler`:
 

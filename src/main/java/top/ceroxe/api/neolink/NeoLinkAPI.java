@@ -1,6 +1,7 @@
 package top.ceroxe.api.neolink;
 
-import fun.ceroxe.api.net.SecureSocket;
+import top.ceroxe.api.OshiUtils;
+import top.ceroxe.api.net.SecureSocket;
 import top.ceroxe.api.neolink.exception.NoMoreNetworkFlowException;
 import top.ceroxe.api.neolink.exception.NoSuchKeyException;
 import top.ceroxe.api.neolink.exception.UnsupportedVersionException;
@@ -990,8 +991,7 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     private static String updateClientType() {
-        String osName = System.getProperty("os.name", "");
-        return osName.toLowerCase().contains("windows") ? WINDOWS_UPDATE_CLIENT_TYPE : DEFAULT_UPDATE_CLIENT_TYPE;
+        return OshiUtils.isWindows() ? WINDOWS_UPDATE_CLIENT_TYPE : DEFAULT_UPDATE_CLIENT_TYPE;
     }
 
     private void transitionTo(NeoLinkState newState) {
