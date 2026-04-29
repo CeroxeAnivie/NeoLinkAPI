@@ -15,6 +15,10 @@ class NeoLinkCfgTest {
         assertThrows(IllegalArgumentException.class, () -> new NeoLinkCfg("p.ceroxe.fun", 44801, 0, "key", 25565));
         assertThrows(IllegalArgumentException.class, () -> new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "", 25565));
         assertThrows(IllegalArgumentException.class, () -> new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "key", 0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new NeoLinkCfg("p.ceroxe.fun", 44801, 44802, "key", 25565).setClientVersion(" ")
+        );
     }
 
     @Test
@@ -32,6 +36,7 @@ class NeoLinkCfgTest {
         assertFalse(cfg.isPPV2Enabled());
         assertFalse(cfg.isDebugMsg());
         assertEquals(NeoLinkCfg.ZH_CH, cfg.getLanguage());
+        assertEquals(NeoLinkAPI.version(), cfg.getClientVersion());
     }
 
     @Test
@@ -51,6 +56,7 @@ class NeoLinkCfgTest {
                 .setUDPEnabled(true)
                 .setPPV2Enabled()
                 .setLanguage(NeoLinkCfg.EN_US)
+                .setClientVersion("6.0.2-test")
                 .setDebugMsg();
 
         assertEquals("nps.example.com", cfg.getRemoteDomainName());
@@ -66,6 +72,7 @@ class NeoLinkCfgTest {
         assertTrue(cfg.isUDPEnabled());
         assertTrue(cfg.isPPV2Enabled());
         assertEquals(NeoLinkCfg.EN_US, cfg.getLanguage());
+        assertEquals("6.0.2-test", cfg.getClientVersion());
         assertTrue(cfg.isDebugMsg());
     }
 
@@ -77,6 +84,17 @@ class NeoLinkCfgTest {
         assertSame(neoLink, neoLink.setOnConnectNeoFailure(() -> {
         }));
         assertSame(neoLink, neoLink.setOnConnectLocalFailure(() -> {
+        }));
+        assertSame(neoLink, neoLink.setOnStateChanged(state -> {
+        }));
+        assertSame(neoLink, neoLink.setOnError((message, cause) -> {
+        }));
+        assertSame(neoLink, neoLink.setOnServerMessage(message -> {
+        }));
+        assertSame(neoLink, neoLink.setOnRemotePortChanged(port -> {
+        }));
+        assertSame(neoLink, neoLink.setUnsupportedVersionDecision(response -> false));
+        assertSame(neoLink, neoLink.setDebugSink((message, cause) -> {
         }));
     }
 

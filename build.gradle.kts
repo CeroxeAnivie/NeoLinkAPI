@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "top.ceroxe.api"
-version = "6.0.2"
+version = "6.1.0"
 val mavenArtifactId = "neolinkapi"
 
 repositories {

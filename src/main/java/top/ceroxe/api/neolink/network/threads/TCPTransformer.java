@@ -4,6 +4,8 @@ import fun.ceroxe.api.net.SecureSocket;
 import top.ceroxe.api.neolink.util.Debugger;
 
 import java.net.Socket;
+import java.util.Objects;
+import java.util.function.BiConsumer;
 
 import static top.ceroxe.api.neolink.network.InternetOperator.*;
 
@@ -44,6 +46,7 @@ public class TCPTransformer implements Runnable {
     private final int mode;
     private final boolean enableProxyProtocol;
     private final boolean debugEnabled;
+    private final BiConsumer<String, Throwable> debugSink;
 
     // 每条转发链路独占缓冲区，避免多连接并发时共享数组导致数据串扰。
     private final byte[] buffer = new byte[BUFFER_LENGTH];
@@ -58,11 +61,22 @@ public class TCPTransformer implements Runnable {
     }
 
     public TCPTransformer(SecureSocket secureSender, Socket localReceiver, boolean enableProxyProtocol, boolean debugEnabled) {
+        this(secureSender, localReceiver, enableProxyProtocol, debugEnabled, TCPTransformer::defaultDebugSink);
+    }
+
+    public TCPTransformer(
+            SecureSocket secureSender,
+            Socket localReceiver,
+            boolean enableProxyProtocol,
+            boolean debugEnabled,
+            BiConsumer<String, Throwable> debugSink
+    ) {
         this.secureSocket = secureSender;
         this.plainSocket = localReceiver;
         this.mode = MODE_NEO_TO_LOCAL;
         this.enableProxyProtocol = enableProxyProtocol;
         this.debugEnabled = debugEnabled;
+        this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
     }
 
     /**
@@ -75,11 +89,22 @@ public class TCPTransformer implements Runnable {
     }
 
     public TCPTransformer(Socket localSender, SecureSocket secureReceiver, boolean enableProxyProtocol, boolean debugEnabled) {
+        this(localSender, secureReceiver, enableProxyProtocol, debugEnabled, TCPTransformer::defaultDebugSink);
+    }
+
+    public TCPTransformer(
+            Socket localSender,
+            SecureSocket secureReceiver,
+            boolean enableProxyProtocol,
+            boolean debugEnabled,
+            BiConsumer<String, Throwable> debugSink
+    ) {
         this.plainSocket = localSender;
         this.secureSocket = secureReceiver;
         this.mode = MODE_LOCAL_TO_NEO;
         this.enableProxyProtocol = enableProxyProtocol;
         this.debugEnabled = debugEnabled;
+        this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
     }
 
     /**
@@ -204,10 +229,33 @@ public class TCPTransformer implements Runnable {
     }
 
     private void debug(String message) {
-        Debugger.debugOperation(debugEnabled, message);
+        if (!debugEnabled) {
+            return;
+        }
+        emitDebug(message, null);
     }
 
     private void debug(Exception e) {
-        Debugger.debugOperation(debugEnabled, e);
+        if (!debugEnabled || e == null) {
+            return;
+        }
+        emitDebug(null, e);
+    }
+
+    private void emitDebug(String message, Throwable cause) {
+        try {
+            debugSink.accept(message, cause);
+        } catch (RuntimeException ignored) {
+            // Debug callbacks are observational and must not disturb forwarding.
+        }
+    }
+
+    private static void defaultDebugSink(String message, Throwable cause) {
+        if (message != null) {
+            Debugger.debugOperation(true, message);
+        }
+        if (cause instanceof Exception exception) {
+            Debugger.debugOperation(true, exception);
+        }
     }
 }

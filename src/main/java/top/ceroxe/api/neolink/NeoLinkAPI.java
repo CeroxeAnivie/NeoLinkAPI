@@ -28,6 +28,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
+import java.util.function.Function;
+import java.util.function.IntConsumer;
 
 /**
  * NeoLinkAPI 的唯一隧道控制入口。
@@ -41,6 +44,15 @@ public final class NeoLinkAPI implements AutoCloseable {
     private static final int CONNECT_TIMEOUT_MILLIS = 5_000;
     private static final Runnable NOOP = () -> {
     };
+    private static final Consumer<NeoLinkState> NOOP_STATE_HANDLER = state -> {
+    };
+    private static final Consumer<String> NOOP_MESSAGE_HANDLER = message -> {
+    };
+    private static final IntConsumer NOOP_PORT_HANDLER = port -> {
+    };
+    private static final BiConsumer<String, Throwable> NOOP_ERROR_HANDLER = (message, cause) -> {
+    };
+    private static final Function<String, Boolean> REJECT_UNSUPPORTED_VERSION_UPDATE = response -> false;
 
     private final NeoLinkCfg cfg;
     private final Object lifecycleLock = new Object();
@@ -59,11 +71,18 @@ public final class NeoLinkAPI implements AutoCloseable {
     private volatile Future<?> supervisorFuture;
     private volatile long lastReceivedTime = System.currentTimeMillis();
     private volatile int remotePort;
+    private volatile NeoLinkState state = NeoLinkState.STOPPED;
 
     private volatile BiConsumer<InetSocketAddress, InetSocketAddress> onConnect = NeoLinkAPI::ignoreConnectionEvent;
     private volatile BiConsumer<InetSocketAddress, InetSocketAddress> onDisconnect = NeoLinkAPI::ignoreConnectionEvent;
     private volatile Runnable onConnectNeoFailure = NOOP;
     private volatile Runnable onConnectLocalFailure = NOOP;
+    private volatile Consumer<NeoLinkState> onStateChanged = NOOP_STATE_HANDLER;
+    private volatile BiConsumer<String, Throwable> onError = NOOP_ERROR_HANDLER;
+    private volatile Consumer<String> onServerMessage = NOOP_MESSAGE_HANDLER;
+    private volatile IntConsumer onRemotePortChanged = NOOP_PORT_HANDLER;
+    private volatile Function<String, Boolean> unsupportedVersionDecision = REJECT_UNSUPPORTED_VERSION_UPDATE;
+    private volatile BiConsumer<String, Throwable> debugSink = NeoLinkAPI::defaultDebugSink;
 
     /**
      * 绑定一个不可为空的配置对象。
@@ -91,6 +110,7 @@ public final class NeoLinkAPI implements AutoCloseable {
      */
     public void start()
             throws IOException, UnsupportedVersionException, NoSuchKeyException, NoMoreNetworkFlowException {
+        boolean notifyStarting;
         synchronized (lifecycleLock) {
             if (isActive()) {
                 debug("start() ignored because this NeoLinkAPI instance is already active.");
@@ -99,6 +119,7 @@ public final class NeoLinkAPI implements AutoCloseable {
 
             long generation = lifecycleGeneration.incrementAndGet();
             runtimeCfg = cfg.copy();
+            notifyStarting = moveStateTo(NeoLinkState.STARTING);
             debug("Starting NeoLinkAPI tunnel. " + describeRuntimeConfig());
             proxyOperator = new ProxyOperator(
                     runtimeCfg.getRemoteDomainName(),
@@ -113,11 +134,15 @@ public final class NeoLinkAPI implements AutoCloseable {
                     () -> lastReceivedTime,
                     runtimeCfg.getHeartBeatPacketDelay(),
                     this::emitError,
-                    isDebugEnabled()
+                    isDebugEnabled(),
+                    this::emitDebug
             );
             closeRequested.set(false);
             running.set(true);
             supervisorFuture = workerExecutor.submit(() -> runCore(generation));
+        }
+        if (notifyStarting) {
+            emitStateChanged(NeoLinkState.STARTING);
         }
 
         try {
@@ -147,6 +172,98 @@ public final class NeoLinkAPI implements AutoCloseable {
      */
     public int getRemotePort() {
         return remotePort;
+    }
+
+    /**
+     * 返回当前生命周期状态。
+     *
+     * @return 最近一次状态机转移后的状态
+     */
+    public NeoLinkState getState() {
+        return state;
+    }
+
+    /**
+     * 设置生命周期状态变化回调。
+     *
+     * <p>回调异常会被 API 捕获并写入 debug sink，不会中断隧道线程。</p>
+     *
+     * @param onStateChanged 状态变化回调
+     * @return 当前隧道对象，便于链式调用
+     */
+    public NeoLinkAPI setOnStateChanged(Consumer<NeoLinkState> onStateChanged) {
+        this.onStateChanged = Objects.requireNonNull(onStateChanged, "onStateChanged");
+        return this;
+    }
+
+    /**
+     * 设置运行期错误回调。
+     *
+     * <p>该通道用于业务可见错误，例如心跳失败、服务端关闭、流量耗尽或运行期 I/O
+     * 异常。调试日志不会混入该通道。</p>
+     *
+     * @param onError 参数为错误摘要和原始异常
+     * @return 当前隧道对象，便于链式调用
+     */
+    public NeoLinkAPI setOnError(BiConsumer<String, Throwable> onError) {
+        this.onError = Objects.requireNonNull(onError, "onError");
+        return this;
+    }
+
+    /**
+     * 设置服务端普通消息回调。
+     *
+     * <p>非 {@code :>} 控制命令的服务端文本会通过该回调交给宿主应用展示或记录。
+     * API 不在这里耦合 GUI、CLI 或本地化文案。</p>
+     *
+     * @param onServerMessage 服务端消息回调
+     * @return 当前隧道对象，便于链式调用
+     */
+    public NeoLinkAPI setOnServerMessage(Consumer<String> onServerMessage) {
+        this.onServerMessage = Objects.requireNonNull(onServerMessage, "onServerMessage");
+        return this;
+    }
+
+    /**
+     * 设置公网端口更新回调。
+     *
+     * @param onRemotePortChanged 服务端下发公网端口时触发
+     * @return 当前隧道对象，便于链式调用
+     */
+    public NeoLinkAPI setOnRemotePortChanged(IntConsumer onRemotePortChanged) {
+        this.onRemotePortChanged = Objects.requireNonNull(onRemotePortChanged, "onRemotePortChanged");
+        return this;
+    }
+
+    /**
+     * 设置不支持当前版本时是否向服务端声明“调用方会尝试更新”。
+     *
+     * <p>API 不执行下载或替换文件。该决策函数只负责返回要发给服务端的布尔值：
+     * {@code true} 表示宿主应用将自行处理更新，{@code false} 表示不会自动更新。</p>
+     *
+     * @param unsupportedVersionDecision 输入为服务端原始响应，返回是否请求更新
+     * @return 当前隧道对象，便于链式调用
+     */
+    public NeoLinkAPI setUnsupportedVersionDecision(Function<String, Boolean> unsupportedVersionDecision) {
+        this.unsupportedVersionDecision = Objects.requireNonNull(
+                unsupportedVersionDecision,
+                "unsupportedVersionDecision"
+        );
+        return this;
+    }
+
+    /**
+     * 设置实例级调试事件接收器。
+     *
+     * <p>调试 sink 只接收诊断细节。业务错误请使用 {@link #setOnError(BiConsumer)}，
+     * 生命周期请使用 {@link #setOnStateChanged(Consumer)}。回调异常会被隔离。</p>
+     *
+     * @param debugSink 参数为调试消息和异常；两者至少一个非空
+     * @return 当前隧道对象，便于链式调用
+     */
+    public NeoLinkAPI setDebugSink(BiConsumer<String, Throwable> debugSink) {
+        this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
+        return this;
     }
 
     /**
@@ -232,15 +349,18 @@ public final class NeoLinkAPI implements AutoCloseable {
             if (activeCheckAliveThread != null) {
                 activeCheckAliveThread.startThread();
             }
+            transitionTo(NeoLinkState.RUNNING);
             completeStartup(generation, null);
             listenForServerCommands();
         } catch (UnsupportedVersionException | NoSuchKeyException | NoMoreNetworkFlowException e) {
             completeStartup(generation, e);
             closeRequested.set(true);
+            transitionTo(NeoLinkState.FAILED);
             emitError(e.getMessage(), e);
         } catch (IOException e) {
             completeStartup(generation, e);
             if (running.get() && !closeRequested.get()) {
+                transitionTo(NeoLinkState.FAILED);
                 emitError("NeoLinkAPI 隧道异常停止。", e);
                 debug(e);
             }
@@ -248,6 +368,7 @@ public final class NeoLinkAPI implements AutoCloseable {
             IOException exception = toIOException("NeoLinkAPI 隧道异常停止。", e);
             completeStartup(generation, exception);
             if (running.get() && !closeRequested.get()) {
+                transitionTo(NeoLinkState.FAILED);
                 emitError(exception.getMessage(), exception);
                 debug(exception);
             }
@@ -304,7 +425,7 @@ public final class NeoLinkAPI implements AutoCloseable {
         debug("Received server handshake response. value=" + serverResponse);
 
         if (isUnsupportedVersionResponse(serverResponse)) {
-            hookSocket.sendStr("false");
+            hookSocket.sendStr(Boolean.toString(shouldRequestUnsupportedVersionUpdate(serverResponse)));
             throw new UnsupportedVersionException(serverResponse);
         }
 
@@ -327,7 +448,7 @@ public final class NeoLinkAPI implements AutoCloseable {
         StringBuilder info = new StringBuilder()
                 .append(runtimeCfg.getLanguage())
                 .append(';')
-                .append(VersionInfo.VERSION)
+                .append(runtimeCfg.getClientVersion())
                 .append(';')
                 .append(runtimeCfg.getKey())
                 .append(';');
@@ -348,6 +469,7 @@ public final class NeoLinkAPI implements AutoCloseable {
             if (message.startsWith(":>")) {
                 handleServerCommand(message.substring(2));
             } else {
+                emitServerMessage(message);
                 debug("Ignored non-command server message.");
             }
         }
@@ -387,7 +509,7 @@ public final class NeoLinkAPI implements AutoCloseable {
 
     private void updateRemotePort(String value) {
         try {
-            remotePort = Integer.parseInt(value);
+            setRemotePort(Integer.parseInt(value));
             debug("Remote public port updated. remotePort=" + remotePort);
         } catch (NumberFormatException e) {
             debug("Ignored unknown server command. value=" + value);
@@ -411,13 +533,15 @@ public final class NeoLinkAPI implements AutoCloseable {
                     neoTransferSocket,
                     localServerSocket,
                     runtimeCfg.isPPV2Enabled(),
-                    isDebugEnabled()
+                    isDebugEnabled(),
+                    this::emitDebug
             );
             TCPTransformer localToServerTask = new TCPTransformer(
                     localServerSocket,
                     neoTransferSocket,
                     false,
-                    isDebugEnabled()
+                    isDebugEnabled(),
+                    this::emitDebug
             );
             ExecutorService executor = requireWorkerExecutor();
             Future<?> first = executor.submit(serverToLocalTask);
@@ -461,14 +585,16 @@ public final class NeoLinkAPI implements AutoCloseable {
                     neoTransferSocket,
                     runtimeCfg.getLocalDomainName(),
                     runtimeCfg.getLocalPort(),
-                    isDebugEnabled()
+                    isDebugEnabled(),
+                    this::emitDebug
             );
             UDPTransformer neoToLocalTask = new UDPTransformer(
                     neoTransferSocket,
                     datagramSocket,
                     runtimeCfg.getLocalDomainName(),
                     runtimeCfg.getLocalPort(),
-                    isDebugEnabled()
+                    isDebugEnabled(),
+                    this::emitDebug
             );
             ExecutorService executor = requireWorkerExecutor();
             Future<?> first = executor.submit(localToNeoTask);
@@ -599,6 +725,9 @@ public final class NeoLinkAPI implements AutoCloseable {
 
     @Override
     public void close() {
+        if (state != NeoLinkState.STOPPED) {
+            transitionTo(NeoLinkState.STOPPING);
+        }
         synchronized (lifecycleLock) {
             debug("close() requested.");
             closeRequested.set(true);
@@ -664,6 +793,7 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     private void cleanupLifecycle(long generation) {
+        boolean notifyStopped;
         synchronized (lifecycleLock) {
             if (!isCurrentGeneration(generation)) {
                 debug("Ignoring cleanup from a stale lifecycle generation. generation=" + generation);
@@ -677,6 +807,10 @@ public final class NeoLinkAPI implements AutoCloseable {
             closeActiveConnection();
             running.set(false);
             shutdownWorkerExecutor();
+            notifyStopped = moveStateTo(NeoLinkState.STOPPED);
+        }
+        if (notifyStopped) {
+            emitStateChanged(NeoLinkState.STOPPED);
         }
     }
 
@@ -744,9 +878,66 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     private void emitError(String message, Throwable cause) {
+        try {
+            onError.accept(message, cause);
+        } catch (RuntimeException e) {
+            debug(e);
+        }
         debug("ERROR: " + message);
         if (cause instanceof Exception exception) {
             debug(exception);
+        }
+    }
+
+    private void emitServerMessage(String message) {
+        try {
+            onServerMessage.accept(message);
+        } catch (RuntimeException e) {
+            debug(e);
+        }
+    }
+
+    private void setRemotePort(int remotePort) {
+        if (this.remotePort == remotePort) {
+            return;
+        }
+        this.remotePort = remotePort;
+        try {
+            onRemotePortChanged.accept(remotePort);
+        } catch (RuntimeException e) {
+            debug(e);
+        }
+    }
+
+    private boolean shouldRequestUnsupportedVersionUpdate(String serverResponse) {
+        try {
+            return Boolean.TRUE.equals(unsupportedVersionDecision.apply(serverResponse));
+        } catch (RuntimeException e) {
+            debug(e);
+            return false;
+        }
+    }
+
+    private void transitionTo(NeoLinkState newState) {
+        if (moveStateTo(newState)) {
+            emitStateChanged(newState);
+        }
+    }
+
+    private boolean moveStateTo(NeoLinkState newState) {
+        Objects.requireNonNull(newState, "newState");
+        if (state == newState) {
+            return false;
+        }
+        state = newState;
+        return true;
+    }
+
+    private void emitStateChanged(NeoLinkState newState) {
+        try {
+            onStateChanged.accept(newState);
+        } catch (RuntimeException e) {
+            debug(e);
         }
     }
 
@@ -840,11 +1031,34 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     private void debug(String message) {
-        Debugger.debugOperation(isDebugEnabled(), message);
+        if (!isDebugEnabled()) {
+            return;
+        }
+        emitDebug(message, null);
     }
 
     private void debug(Exception e) {
-        Debugger.debugOperation(isDebugEnabled(), e);
+        if (!isDebugEnabled() || e == null) {
+            return;
+        }
+        emitDebug(null, e);
+    }
+
+    private void emitDebug(String message, Throwable cause) {
+        try {
+            debugSink.accept(message, cause);
+        } catch (RuntimeException ignored) {
+            // Debug callbacks are observational and must not affect tunnel state.
+        }
+    }
+
+    private static void defaultDebugSink(String message, Throwable cause) {
+        if (message != null) {
+            Debugger.debugOperation(true, message);
+        }
+        if (cause instanceof Exception exception) {
+            Debugger.debugOperation(true, exception);
+        }
     }
 
     private String describeRuntimeConfig() {

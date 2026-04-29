@@ -38,6 +38,7 @@ public final class NeoLinkCfg {
     private boolean ppv2Enabled = false;
     private boolean debugMsg = false;
     private String language = ZH_CH;
+    private String clientVersion = VersionInfo.VERSION;
 
     /**
      * 创建一个最小可用的 NeoLinkAPI 隧道配置。
@@ -76,6 +77,7 @@ public final class NeoLinkCfg {
             this.ppv2Enabled = source.ppv2Enabled;
             this.debugMsg = source.debugMsg;
             this.language = source.language;
+            this.clientVersion = source.clientVersion;
         }
     }
 
@@ -385,6 +387,29 @@ public final class NeoLinkCfg {
      */
     public synchronized NeoLinkCfg setLanguage(String language) {
         this.language = normalizeLanguage(language);
+        return this;
+    }
+
+    /**
+     * 返回握手阶段上报给 NeoProxyServer 的客户端版本。
+     *
+     * @return 默认值为当前 NeoLinkAPI 包版本
+     */
+    public synchronized String getClientVersion() {
+        return clientVersion;
+    }
+
+    /**
+     * 设置握手阶段上报给 NeoProxyServer 的客户端版本。
+     *
+     * <p>普通调用方不需要修改该值。桌面客户端、测试工具或兼容性探针可以通过它
+     * 精确控制握手版本，避免把“版本上报策略”硬编码在 API 内部。</p>
+     *
+     * @param clientVersion 非空白版本字符串
+     * @return 当前配置对象，便于链式调用
+     */
+    public synchronized NeoLinkCfg setClientVersion(String clientVersion) {
+        this.clientVersion = requireText(clientVersion, "clientVersion");
         return this;
     }
 

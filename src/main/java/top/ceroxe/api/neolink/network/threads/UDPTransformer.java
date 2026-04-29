@@ -10,6 +10,8 @@ import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.Objects;
+import java.util.function.BiConsumer;
 
 import static top.ceroxe.api.neolink.network.InternetOperator.close;
 
@@ -49,6 +51,7 @@ public class UDPTransformer implements Runnable {
     private final String localHost;
     private final int localPort;
     private final boolean debugEnabled;
+    private final BiConsumer<String, Throwable> debugSink;
 
     // 每条 UDP 转发链路独占接收缓冲区，避免多连接并发时复用同一数组。
     private final byte[] receiveBuffer = new byte[BUFFER_LENGTH];
@@ -76,12 +79,24 @@ public class UDPTransformer implements Runnable {
             int localPort,
             boolean debugEnabled
     ) {
+        this(secureSender, localReceiver, localHost, localPort, debugEnabled, UDPTransformer::defaultDebugSink);
+    }
+
+    public UDPTransformer(
+            SecureSocket secureSender,
+            DatagramSocket localReceiver,
+            String localHost,
+            int localPort,
+            boolean debugEnabled,
+            BiConsumer<String, Throwable> debugSink
+    ) {
         this.secureSocket = secureSender;
         this.plainSocket = localReceiver;
         this.mode = MODE_NEO_TO_LOCAL;
         this.localHost = localHost;
         this.localPort = localPort;
         this.debugEnabled = debugEnabled;
+        this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
     }
 
     /**
@@ -102,12 +117,24 @@ public class UDPTransformer implements Runnable {
             int localPort,
             boolean debugEnabled
     ) {
+        this(localSender, secureReceiver, localHost, localPort, debugEnabled, UDPTransformer::defaultDebugSink);
+    }
+
+    public UDPTransformer(
+            DatagramSocket localSender,
+            SecureSocket secureReceiver,
+            String localHost,
+            int localPort,
+            boolean debugEnabled,
+            BiConsumer<String, Throwable> debugSink
+    ) {
         this.plainSocket = localSender;
         this.secureSocket = secureReceiver;
         this.mode = MODE_LOCAL_TO_NEO;
         this.localHost = localHost;
         this.localPort = localPort;
         this.debugEnabled = debugEnabled;
+        this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
     }
 
     /**
@@ -247,10 +274,33 @@ public class UDPTransformer implements Runnable {
     }
 
     private void debug(String message) {
-        Debugger.debugOperation(debugEnabled, message);
+        if (!debugEnabled) {
+            return;
+        }
+        emitDebug(message, null);
     }
 
     private void debug(Exception e) {
-        Debugger.debugOperation(debugEnabled, e);
+        if (!debugEnabled || e == null) {
+            return;
+        }
+        emitDebug(null, e);
+    }
+
+    private void emitDebug(String message, Throwable cause) {
+        try {
+            debugSink.accept(message, cause);
+        } catch (RuntimeException ignored) {
+            // Debug callbacks are observational and must not disturb forwarding.
+        }
+    }
+
+    private static void defaultDebugSink(String message, Throwable cause) {
+        if (message != null) {
+            Debugger.debugOperation(true, message);
+        }
+        if (cause instanceof Exception exception) {
+            Debugger.debugOperation(true, exception);
+        }
     }
 }
