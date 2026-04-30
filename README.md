@@ -1,6 +1,10 @@
 # NeoLinkAPI
 
-NeoLinkAPI 是面向 Java 应用的嵌入式隧道 API。它不包含 GUI、CLI 交互、配置文件读取、自动更新或节点列表管理；调用方只需要提供明确配置，然后通过 `NeoLinkAPI` 控制 TCP/UDP 隧道生命周期。
+NeoLinkAPI 是面向 Java 应用的嵌入式隧道 API。它不包含 GUI、CLI 交互、配置文件读取或自动更新；调用方只需要提供明确配置，然后通过 `NeoLinkAPI` 控制 TCP/UDP 隧道生命周期。需要使用 NKM 公共节点列表时，可通过 `NodeFetcher` 拉取远端节点并自行补齐访问密钥和本地下游端口。
+
+## 运行要求
+
+NeoLinkAPI 7.1.0 使用 Java 21 构建，并依赖 Java 21 的虚拟线程能力。宿主应用需要使用 JDK 21 或更高版本编译和运行。
 
 ## 引入API：
 
@@ -10,7 +14,7 @@ Maven：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi</artifactId>
-    <version>7.0.0</version>
+    <version>7.1.0</version>
 </dependency>
 ```
 
@@ -18,7 +22,7 @@ Gradle Kotlin DSL：
 
 ```kotlin
 dependencies {
-    implementation("top.ceroxe.api:neolinkapi:7.0.0")
+    implementation("top.ceroxe.api:neolinkapi:7.1.0")
 }
 ```
 
@@ -26,7 +30,7 @@ Gradle Groovy DSL：
 
 ```groovy
 dependencies {
-    implementation 'top.ceroxe.api:neolinkapi:7.0.0'
+    implementation 'top.ceroxe.api:neolinkapi:7.1.0'
 }
 ```
 
@@ -36,11 +40,13 @@ dependencies {
 import top.ceroxe.api.neolink.NeoLinkAPI;
 import top.ceroxe.api.neolink.NeoLinkCfg;
 import top.ceroxe.api.neolink.NeoLinkState;
+import top.ceroxe.api.neolink.NodeFetcher;
 import top.ceroxe.api.neolink.exception.NoMoreNetworkFlowException;
 import top.ceroxe.api.neolink.exception.NoSuchKeyException;
 import top.ceroxe.api.neolink.exception.UnsupportedVersionException;
 
 import java.io.IOException;
+import java.util.Map;
 
 public class Example {
     public static void main(String[] args) {
@@ -95,10 +101,8 @@ public class Example {
                 });
 
         try {
-            tunnel.start();
-
             Runtime.getRuntime().addShutdownHook(new Thread(tunnel::close));
-            Thread.currentThread().join();
+            tunnel.start();
         } catch (UnsupportedVersionException e) {
             System.err.println("unsupported version: " + e.serverResponse());
             System.err.println("update URL: " + tunnel.getUpdateURL());
@@ -108,14 +112,31 @@ public class Example {
             System.err.println("no traffic left: " + e.serverResponse());
         } catch (IOException e) {
             System.err.println("tunnel I/O failure: " + e.getMessage());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         } finally {
             tunnel.close();
         }
     }
 }
 ```
+
+## NKM 节点列表
+
+`NodeFetcher` 会从 NKM 节点列表接口读取在线公开节点，返回以 `realId` 为 key 的 `Map<String, NeoLinkCfg>`。
+
+```java
+Map<String, NeoLinkCfg> nodes = NodeFetcher.getFromNKM("https://p.ceroxe.fun:49999/client/nodelist");
+// 或自定义连接和读取超时，单位毫秒：
+Map<String, NeoLinkCfg> nodesWithTimeout = NodeFetcher.getFromNKM(
+        "https://p.ceroxe.fun:49999/client/nodelist",
+        1500
+);
+
+NeoLinkCfg cfg = nodes.get("node-suqian")
+        .setKey("your-key")
+        .setLocalPort(25565);
+```
+
+NKM 只发布远端节点身份和连接端点，因此 `NodeFetcher` 返回的 `NeoLinkCfg` 只包含 `remoteDomainName`、`hookPort` 和 `hostConnectPort`。`key` 和 `localPort` 属于调用方私有配置，必须在 `NeoLinkAPI.start()` 前显式设置；否则 API 会拒绝启动，避免把不完整配置延迟到网络握手阶段才失败。
 
 ## 代理示例
 
@@ -136,7 +157,9 @@ socks->[::1]:14455@user;password
 http->proxy.example.com:8080@user;password
 ```
 
-未知代理类型会直接抛出 `IllegalArgumentException`，这是预期行为。
+空字符串或不调用代理 setter 表示直连。`direct->host:port` 也会被解析为直连兼容项，但推荐使用默认空代理表达直连，避免误以为该地址会被当作代理服务器连接。
+
+代理字符串会在 `NeoLinkAPI.start()` 创建运行期连接器时解析。未知代理类型、非法端口、非法 IPv6 地址或非法认证格式会抛出 `IllegalArgumentException`，这是预期行为。
 
 ## 对外 API
 
@@ -226,6 +249,51 @@ new NeoLinkCfg(remoteDomainName, hookPort, hostConnectPort, key, localPort)
 - `STOPPING`：调用方请求关闭，API 正在释放资源。
 - `FAILED`：隧道遇到终止性运行期错误；清理完成后会进入 `STOPPED`。
 
+`NeoLinkState` 不是启动参数，而是运行期状态观测值。调用方通常通过 `setOnStateChanged(...)` 订阅状态变化，用它驱动 UI、外部 supervisor、重试策略或资源清理；也可以随时通过 `getState()` 读取最近一次状态。
+
+典型用法：
+
+```java
+NeoLinkAPI tunnel = new NeoLinkAPI(cfg)
+        .setOnStateChanged(state -> {
+            switch (state) {
+                case STARTING -> {
+                    // 握手尚未完成，适合把 UI 显示为“连接中”或暂停重复启动按钮。
+                    System.out.println("tunnel is starting");
+                }
+                case RUNNING -> {
+                    // start() 已完成握手，服务端指令监听、心跳和转发调度已经进入运行态。
+                    System.out.println("tunnel is running");
+                }
+                case STOPPING -> {
+                    // close() 已被调用或内部正在释放 socket、心跳线程和转发 worker。
+                    System.out.println("tunnel is stopping");
+                }
+                case FAILED -> {
+                    // 发生终止性运行期错误。具体错误原因应从 setOnError(...) 获取。
+                    System.err.println("tunnel failed");
+                }
+                case STOPPED -> {
+                    // 清理已经完成。同一个 NeoLinkAPI 实例可以再次 start()。
+                    System.out.println("tunnel is stopped");
+                }
+            }
+        })
+        .setOnError((message, cause) -> {
+            // 生命周期状态只表达阶段；业务可见错误原因从这里读取。
+            System.err.println(message);
+            if (cause != null) {
+                cause.printStackTrace();
+            }
+        });
+```
+
+常见状态路径：
+
+- 正常启动：`STOPPED` -> `STARTING` -> `RUNNING`。
+- 主动关闭：`RUNNING` -> `STOPPING` -> `STOPPED`。
+- 启动或运行期失败：`STARTING` 或 `RUNNING` -> `FAILED` -> `STOPPED`。
+
 ### `NeoLinkAPI`
 
 构造函数：
@@ -236,7 +304,8 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 
 生命周期：
 
-- `start()`：建立控制连接、发送握手、启动心跳和服务端指令监听。该方法会阻塞到握手成功或失败。
+- `start()`：建立控制连接、发送握手、启动心跳和服务端指令监听。该方法会阻塞到隧道被 `close()` 关闭或发生终止性失败；握手失败会直接抛出对应异常。
+- `start(int connectToNpsTimeoutMillis)`：使用自定义 NPS 连接超时时间启动，单位毫秒，必须大于 `0`。该超时只影响连接 NeoProxyServer 控制端口和传输端口；本地下游连接超时仍使用默认值。
 - `close()`：关闭控制连接、心跳线程、所有活动 TCP/UDP 转发连接和内部 executor，不抛受检异常。
 - `isActive()`：返回隧道是否仍处于活动状态。
 - `getRemotePort()`：读取服务端下发的公网端口；尚未收到时为 `0`。
@@ -245,7 +314,7 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - `getState()`：读取最近一次生命周期状态。
 - `version()`：静态方法，返回当前 API 版本。
 
-`start()` 已经执行且隧道仍活动时，再次调用会直接返回。`close()` 完成后，同一个 `NeoLinkAPI` 实例可以再次调用 `start()`；新的启动会重新复制当前 `NeoLinkCfg` 配置。
+`start()` 是阻塞式运行入口。握手成功后，调用它的线程会持续等待隧道运行结束；要主动停止隧道，应从另一个线程、UI 事件、服务生命周期回调或 shutdown hook 调用 `close()`。`close()` 会释放控制连接、心跳线程和转发 worker，并使正在阻塞的 `start()` 正常返回。`start()` 已经执行且隧道仍活动时，再次调用会直接返回。`close()` 完成后，同一个 `NeoLinkAPI` 实例可以再次调用 `start()`；新的启动会重新复制当前 `NeoLinkCfg` 配置。
 
 回调：
 
@@ -281,9 +350,23 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - `NeoLinkCfg` 在 `start()` 时会被复制，运行中的隧道不会被后续配置修改影响。
 - `clientVersion` 默认等于 API 包版本；只有需要模拟旧客户端、对接桌面自动更新或做兼容性探针时才应显式设置。
 - PPv2 默认关闭。只有 Nginx、HAProxy 等本地下游已经配置 accept-proxy 时才应开启。
-- 连接超时统一为 `5000ms`，覆盖连接 NeoProxyServer 控制端口、传输端口和本地下游服务。
+- 默认连接超时为 `5000ms`。`start(int connectToNpsTimeoutMillis)` 可单独覆盖连接 NeoProxyServer 控制端口和传输端口的超时时间；本地下游服务连接超时保持 `5000ms`。
 - Debug 日志是英文，包含握手、连接、代理、转发、关闭等细节；密钥在日志中会被遮蔽。推荐通过 `setDebugSink` 接管实例级调试输出，避免库直接污染宿主应用控制台。
 - 业务错误走 `setOnError`，生命周期走 `setOnStateChanged`，服务端普通消息走 `setOnServerMessage`，调试细节走 `setDebugSink`。不要用 debug 日志推断业务状态。
+
+## 7.1.0 NKM node fetcher
+
+`NodeFetcher.getFromNKM(url)` and `NodeFetcher.getFromNKM(url, timeoutMillis)` now fetch NKM public nodes and return `Map<String, NeoLinkCfg>` keyed by stable `realId`.
+
+## 7.0.2 blocking start and NPS timeout
+
+`start()` now blocks until the tunnel is closed or fails. Use `close()` from another thread, a UI event, a service lifecycle callback, or a shutdown hook to stop the tunnel.
+
+`start(int connectToNpsTimeoutMillis)` lets callers override the connection timeout for NeoProxyServer hook and transfer sockets without changing the local downstream service timeout.
+
+## 7.0.1 skipped by Central Portal publishing lock
+
+Version `7.0.1` used the same API changes as `7.0.2`, but its Central Portal deployment stayed locked in `PUBLISHING`. Use `7.0.2`.
 
 ## 7.0.0 Ceroxe API namespace
 

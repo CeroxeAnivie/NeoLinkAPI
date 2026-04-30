@@ -6,6 +6,8 @@ import org.junit.jupiter.api.*;
 
 import java.io.IOException;
 import java.net.*;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -267,11 +269,7 @@ class TCPTransformerIntegrationTest {
     @Test
     @DisplayName("TCPTransformer 应能处理 Proxy Protocol v2 头")
     void testTCPTransformerProxyProtocolV2() throws Exception {
-        byte[] ppv2Header = new byte[]{
-            (byte) 0x0D, (byte) 0x0A, (byte) 0x0D, (byte) 0x0A,
-            (byte) 0x00, (byte) 0x0D, (byte) 0x0A, (byte) 0x51,
-            (byte) 0x55, (byte) 0x49, (byte) 0x54, (byte) 0x0A
-        };
+        byte[] ppv2Header = proxyProtocolV2Header(0);
         
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<byte[]> receivedData = new AtomicReference<>();
@@ -308,7 +306,7 @@ class TCPTransformerIntegrationTest {
             latch.await(5, TimeUnit.SECONDS);
             
             assertNotNull(receivedData.get());
-            assertTrue(receivedData.get().length >= 12);
+            assertArrayEquals(ppv2Header, receivedData.get());
             
             secureClient.close();
             localSocket.close();
@@ -317,5 +315,112 @@ class TCPTransformerIntegrationTest {
             secureServerThread.join(2000);
             failIfServerError(serverError);
         }
+    }
+
+    @Test
+    @DisplayName("TCPTransformer 应能跨 SecureSocket 帧剥离完整 Proxy Protocol v2 头")
+    void testTCPTransformerStripsSplitProxyProtocolV2Header() throws Exception {
+        byte[] ppv2Header = proxyProtocolV2Header(12);
+        byte[] firstPart = Arrays.copyOfRange(ppv2Header, 0, 7);
+        byte[] secondPart = Arrays.copyOfRange(ppv2Header, 7, ppv2Header.length);
+        byte[] payload = "REAL_PAYLOAD".getBytes(StandardCharsets.UTF_8);
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<byte[]> receivedData = new AtomicReference<>();
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
+
+        try (SecureServerSocket server = new SecureServerSocket(0);
+             ServerSocket localServer = new ServerSocket(0)) {
+            Thread secureServerThread = startOneShotServer(server, serverError, socket -> {
+                socket.sendBytes(firstPart);
+                socket.sendBytes(secondPart);
+                socket.sendBytes(payload);
+                socket.sendBytes(null);
+            });
+            Thread localServerThread = Thread.ofVirtual().start(() -> {
+                try {
+                    Socket localClient = localServer.accept();
+                    byte[] buffer = new byte[1024];
+                    int len = localClient.getInputStream().read(buffer);
+                    if (len > 0) {
+                        receivedData.set(Arrays.copyOf(buffer, len));
+                    }
+                    localClient.close();
+                    latch.countDown();
+                } catch (IOException e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
+
+            SecureSocket secureClient = new SecureSocket("localhost", server.getLocalPort());
+            Socket localSocket = new Socket("localhost", localServer.getLocalPort());
+            TCPTransformer transformer = new TCPTransformer(secureClient, localSocket, false);
+            Thread transformerThread = Thread.ofVirtual().start(transformer);
+
+            assertTrue(latch.await(5, TimeUnit.SECONDS));
+            assertArrayEquals(payload, receivedData.get());
+
+            secureClient.close();
+            localSocket.close();
+            transformerThread.interrupt();
+            localServerThread.interrupt();
+            secureServerThread.join(2000);
+            failIfServerError(serverError);
+        }
+    }
+
+    @Test
+    @DisplayName("TCPTransformer 禁用 Proxy Protocol v2 时不应转发残缺 PPv2 头")
+    void testTCPTransformerDropsIncompleteProxyProtocolV2Header() throws Exception {
+        byte[] partialHeader = Arrays.copyOfRange(proxyProtocolV2Header(12), 0, 15);
+        CountDownLatch eofReached = new CountDownLatch(1);
+        AtomicReference<Integer> receivedBytes = new AtomicReference<>();
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
+
+        try (SecureServerSocket server = new SecureServerSocket(0);
+             ServerSocket localServer = new ServerSocket(0)) {
+            Thread secureServerThread = startOneShotServer(server, serverError, socket -> {
+                socket.sendBytes(partialHeader);
+                socket.sendBytes(null);
+            });
+            Thread localServerThread = Thread.ofVirtual().start(() -> {
+                try (Socket localClient = localServer.accept()) {
+                    receivedBytes.set(localClient.getInputStream().read());
+                    eofReached.countDown();
+                } catch (IOException e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
+
+            SecureSocket secureClient = new SecureSocket("localhost", server.getLocalPort());
+            Socket localSocket = new Socket("localhost", localServer.getLocalPort());
+            TCPTransformer transformer = new TCPTransformer(secureClient, localSocket, false);
+            Thread transformerThread = Thread.ofVirtual().start(transformer);
+
+            assertTrue(eofReached.await(5, TimeUnit.SECONDS));
+            assertEquals(-1, receivedBytes.get());
+
+            secureClient.close();
+            localSocket.close();
+            transformerThread.interrupt();
+            localServerThread.interrupt();
+            secureServerThread.join(2000);
+            failIfServerError(serverError);
+        }
+    }
+
+    private static byte[] proxyProtocolV2Header(int payloadLength) {
+        byte[] header = new byte[16 + payloadLength];
+        byte[] signature = new byte[]{
+                (byte) 0x0D, (byte) 0x0A, (byte) 0x0D, (byte) 0x0A,
+                (byte) 0x00, (byte) 0x0D, (byte) 0x0A, (byte) 0x51,
+                (byte) 0x55, (byte) 0x49, (byte) 0x54, (byte) 0x0A
+        };
+        System.arraycopy(signature, 0, header, 0, signature.length);
+        header[12] = 0x20;
+        header[13] = 0x00;
+        header[14] = (byte) ((payloadLength >>> 8) & 0xFF);
+        header[15] = (byte) (payloadLength & 0xFF);
+        Arrays.fill(header, 16, header.length, (byte) 0x7F);
+        return header;
     }
 }

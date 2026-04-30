@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "top.ceroxe.api"
-val apiVersion = "7.0.0"
+val apiVersion = "7.1.0"
 version = apiVersion
 val mavenArtifactId = "neolinkapi"
 
@@ -29,6 +29,7 @@ java {
 dependencies {
     api("top.ceroxe.api:ceroxe-core:2.0.0")
     implementation("top.ceroxe.api:ceroxe-detector:2.0.0")
+    implementation("com.google.code.gson:gson:2.11.0")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.2")
 }

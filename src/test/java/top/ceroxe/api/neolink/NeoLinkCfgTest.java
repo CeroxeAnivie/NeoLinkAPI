@@ -41,7 +41,7 @@ class NeoLinkCfgTest {
         assertFalse(cfg.isDebugMsg());
         assertEquals(NeoLinkCfg.ZH_CH, cfg.getLanguage());
         assertEquals(NeoLinkAPI.version(), cfg.getClientVersion());
-        assertEquals("7.0.0", NeoLinkAPI.version());
+        assertEquals("7.1.0", NeoLinkAPI.version());
     }
 
     @Test
@@ -105,6 +105,7 @@ class NeoLinkCfgTest {
         assertSame(neoLink, neoLink.setUnsupportedVersionDecision(response -> false));
         assertSame(neoLink, neoLink.setDebugSink((message, cause) -> {
         }));
+        assertThrows(IllegalArgumentException.class, () -> neoLink.start(0));
     }
 
     @Test

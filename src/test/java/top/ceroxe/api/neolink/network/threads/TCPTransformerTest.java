@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.net.ServerSocket;
 import java.net.Socket;
 
@@ -64,6 +65,8 @@ class TCPTransformerTest {
     void testBufferLengthConstant() throws Exception {
         var field = TCPTransformer.class.getDeclaredField("BUFFER_LENGTH");
         field.setAccessible(true);
+        assertTrue(Modifier.isPrivate(field.getModifiers()));
+        assertTrue(Modifier.isFinal(field.getModifiers()));
         int value = field.getInt(null);
         assertEquals(65535, value);
     }

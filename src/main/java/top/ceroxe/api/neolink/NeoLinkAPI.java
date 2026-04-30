@@ -20,6 +20,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -45,7 +46,7 @@ public final class NeoLinkAPI implements AutoCloseable {
     private static final String WINDOWS_UPDATE_CLIENT_TYPE = "exe";
     private static final String DEFAULT_UPDATE_CLIENT_TYPE = "jar";
     private static final String NO_UPDATE_URL_RESPONSE = "false";
-    private static final int CONNECT_TIMEOUT_MILLIS = 5_000;
+    private static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 5_000;
     private static final int UPDATE_URL_TIMEOUT_MILLIS = 15_000;
     private static final Runnable NOOP = () -> {
     };
@@ -79,6 +80,7 @@ public final class NeoLinkAPI implements AutoCloseable {
     private volatile String updateUrl;
     private volatile long lastReceivedTime = System.currentTimeMillis();
     private volatile int remotePort;
+    private volatile int runtimeConnectToNpsTimeoutMillis = DEFAULT_CONNECT_TIMEOUT_MILLIS;
     private volatile NeoLinkState state = NeoLinkState.STOPPED;
 
     private volatile ConnectionEventHandler onConnect = NOOP_CONNECTION_EVENT_HANDLER;
@@ -105,11 +107,12 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     /**
-     * 建立控制连接、完成握手并启动服务端指令监听。
+     * 建立控制连接、完成握手并阻塞运行到隧道停止。
      *
-     * <p>该方法会阻塞到握手成功或失败。TCP/UDP、PPv2、语言和 debug 等协议相关
-     * 配置必须在调用本方法之前写入 {@link NeoLinkCfg}，因为它们会参与握手或转发
-     * 线程初始化。</p>
+     * <p>该方法会先阻塞到握手成功或失败；握手成功后继续阻塞，直到其他线程调用
+     * {@link #close()}、服务端关闭连接，或运行期遇到终止性错误。TCP/UDP、PPv2、
+     * 语言和 debug 等协议相关配置必须在调用本方法之前写入 {@link NeoLinkCfg}，
+     * 因为它们会参与握手或转发线程初始化。</p>
      *
      * @throws IOException 控制连接、传输连接或本地下游连接发生 I/O 错误
      * @throws UnsupportedVersionException 服务端拒绝当前 API 版本
@@ -118,7 +121,30 @@ public final class NeoLinkAPI implements AutoCloseable {
      */
     public void start()
             throws IOException, UnsupportedVersionException, NoSuchKeyException, NoMoreNetworkFlowException {
+        start(DEFAULT_CONNECT_TIMEOUT_MILLIS);
+    }
+
+    /**
+     * 使用自定义 NPS 连接超时时间建立隧道，并阻塞运行到隧道停止。
+     *
+     * <p>该超时只用于连接 NeoProxyServer 的控制端口和传输端口；本地下游服务连接仍使用
+     * 默认超时，避免“远端 NPS 连接策略”意外改变宿主应用的本地服务探测语义。</p>
+     *
+     * @param connectToNpsTimeoutMillis 连接 NeoProxyServer 控制端口和传输端口的超时时间，必须大于 0
+     * @throws IllegalArgumentException 超时时间小于 1 毫秒时抛出
+     * @throws IOException 控制连接、传输连接或本地下游连接发生 I/O 错误
+     * @throws UnsupportedVersionException 服务端拒绝当前 API 版本
+     * @throws NoSuchKeyException 服务端拒绝访问密钥
+     * @throws NoMoreNetworkFlowException 服务端通知剩余流量耗尽
+     */
+    public void start(int connectToNpsTimeoutMillis)
+            throws IOException, UnsupportedVersionException, NoSuchKeyException, NoMoreNetworkFlowException {
+        int validatedConnectToNpsTimeoutMillis = requirePositive(
+                connectToNpsTimeoutMillis,
+                "connectToNpsTimeoutMillis"
+        );
         boolean notifyStarting;
+        Future<?> activeSupervisorFuture;
         synchronized (lifecycleLock) {
             if (isActive()) {
                 debug("start() ignored because this NeoLinkAPI instance is already active.");
@@ -127,16 +153,19 @@ public final class NeoLinkAPI implements AutoCloseable {
 
             long generation = lifecycleGeneration.incrementAndGet();
             runtimeCfg = cfg.copy();
-            updateUrl = null;
-            remotePort = 0;
-            notifyStarting = moveStateTo(NeoLinkState.STARTING);
-            debug("Starting NeoLinkAPI tunnel. " + describeRuntimeConfig());
-            proxyOperator = new ProxyOperator(
+            runtimeCfg.requireStartReady();
+            ProxyOperator startupProxyOperator = new ProxyOperator(
                     runtimeCfg.getRemoteDomainName(),
                     runtimeCfg.getLocalDomainName(),
                     runtimeCfg.getProxyIPToNeoServer(),
                     runtimeCfg.getProxyIPToLocalServer()
             );
+            updateUrl = null;
+            remotePort = 0;
+            runtimeConnectToNpsTimeoutMillis = validatedConnectToNpsTimeoutMillis;
+            notifyStarting = moveStateTo(NeoLinkState.STARTING);
+            debug("Starting NeoLinkAPI tunnel. " + describeRuntimeConfig());
+            proxyOperator = startupProxyOperator;
             workerExecutor = Executors.newVirtualThreadPerTaskExecutor();
             startupFuture = new CompletableFuture<>();
             checkAliveThread = new CheckAliveThread(
@@ -149,7 +178,11 @@ public final class NeoLinkAPI implements AutoCloseable {
             );
             closeRequested.set(false);
             running.set(true);
-            supervisorFuture = workerExecutor.submit(() -> runCore(generation));
+            supervisorFuture = workerExecutor.submit(() -> {
+                runCore(generation);
+                return null;
+            });
+            activeSupervisorFuture = supervisorFuture;
         }
         if (notifyStarting) {
             emitStateChanged(NeoLinkState.STARTING);
@@ -157,6 +190,7 @@ public final class NeoLinkAPI implements AutoCloseable {
 
         try {
             awaitStartup();
+            awaitRuntime(activeSupervisorFuture);
         } catch (IOException | UnsupportedVersionException | NoSuchKeyException | NoMoreNetworkFlowException e) {
             close();
             throw e;
@@ -363,7 +397,7 @@ public final class NeoLinkAPI implements AutoCloseable {
         void accept(TransportProtocol protocol, InetSocketAddress source, InetSocketAddress target);
     }
 
-    private void runCore(long generation) {
+    private void runCore(long generation) throws Exception {
         try {
             connectToNeoServer();
             exchangeClientInfoWithServer();
@@ -375,24 +409,36 @@ public final class NeoLinkAPI implements AutoCloseable {
             completeStartup(generation, null);
             listenForServerCommands();
         } catch (UnsupportedVersionException | NoSuchKeyException | NoMoreNetworkFlowException e) {
+            boolean runtimeFailure = isStartupComplete();
             completeStartup(generation, e);
             closeRequested.set(true);
             transitionTo(NeoLinkState.FAILED);
             emitError(e.getMessage(), e);
+            if (runtimeFailure) {
+                throw e;
+            }
         } catch (IOException e) {
+            boolean runtimeFailure = isStartupComplete();
             completeStartup(generation, e);
             if (running.get() && !closeRequested.get()) {
                 transitionTo(NeoLinkState.FAILED);
                 emitError("NeoLinkAPI 隧道异常停止。", e);
                 debug(e);
+                if (runtimeFailure) {
+                    throw e;
+                }
             }
         } catch (Exception e) {
             IOException exception = toIOException("NeoLinkAPI 隧道异常停止。", e);
+            boolean runtimeFailure = isStartupComplete();
             completeStartup(generation, exception);
             if (running.get() && !closeRequested.get()) {
                 transitionTo(NeoLinkState.FAILED);
                 emitError(exception.getMessage(), exception);
                 debug(exception);
+                if (runtimeFailure) {
+                    throw exception;
+                }
             }
         } finally {
             cleanupLifecycle(generation);
@@ -400,13 +446,15 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     private void connectToNeoServer() throws IOException {
+        int timeoutMillis = runtimeConnectToNpsTimeoutMillis;
         if (proxyOperator.hasProxy(ProxyOperator.TO_NEO)) {
             debug("Connecting to NeoProxyServer hook through per-instance proxy. target="
-                    + runtimeCfg.getRemoteDomainName() + ":" + runtimeCfg.getHookPort());
+                    + runtimeCfg.getRemoteDomainName() + ":" + runtimeCfg.getHookPort()
+                    + ", timeoutMs=" + timeoutMillis);
             hookSocket = proxyOperator.getHandledSecureSocket(
                     ProxyOperator.TO_NEO,
                     runtimeCfg.getHookPort(),
-                    CONNECT_TIMEOUT_MILLIS
+                    timeoutMillis
             );
             registerConnection(hookSocket);
             return;
@@ -418,10 +466,10 @@ public final class NeoLinkAPI implements AutoCloseable {
         try {
             debug("Connecting to NeoProxyServer hook directly. target="
                     + runtimeCfg.getRemoteDomainName() + ":" + runtimeCfg.getHookPort()
-                    + ", timeoutMs=" + CONNECT_TIMEOUT_MILLIS);
+                    + ", timeoutMs=" + timeoutMillis);
             socket.connect(
                     new InetSocketAddress(runtimeCfg.getRemoteDomainName(), runtimeCfg.getHookPort()),
-                    CONNECT_TIMEOUT_MILLIS
+                    timeoutMillis
             );
             unregisterConnection(socket);
             hookSocket = new SecureSocket(socket);
@@ -675,11 +723,11 @@ public final class NeoLinkAPI implements AutoCloseable {
         if (proxyOperator.hasProxy(ProxyOperator.TO_LOCAL)) {
             debug("Connecting to local service through per-instance proxy. target="
                     + runtimeCfg.getLocalDomainName() + ":" + runtimeCfg.getLocalPort()
-                    + ", timeoutMs=" + CONNECT_TIMEOUT_MILLIS);
+                    + ", timeoutMs=" + DEFAULT_CONNECT_TIMEOUT_MILLIS);
             return proxyOperator.getHandledSocket(
                     ProxyOperator.TO_LOCAL,
                     runtimeCfg.getLocalPort(),
-                    CONNECT_TIMEOUT_MILLIS
+                    DEFAULT_CONNECT_TIMEOUT_MILLIS
             );
         }
         return connectToLocalRobustly(runtimeCfg.getLocalDomainName(), runtimeCfg.getLocalPort());
@@ -693,8 +741,8 @@ public final class NeoLinkAPI implements AutoCloseable {
             registerConnection(socket);
             try {
                 debug("Trying local resolved address. address=" + address.getHostAddress()
-                        + ", port=" + port + ", timeoutMs=" + CONNECT_TIMEOUT_MILLIS);
-                socket.connect(new InetSocketAddress(address, port), CONNECT_TIMEOUT_MILLIS);
+                        + ", port=" + port + ", timeoutMs=" + DEFAULT_CONNECT_TIMEOUT_MILLIS);
+                socket.connect(new InetSocketAddress(address, port), DEFAULT_CONNECT_TIMEOUT_MILLIS);
                 return socket;
             } catch (IOException e) {
                 lastException = e;
@@ -708,14 +756,15 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     private SecureSocket openTransferSocket() throws IOException {
+        int timeoutMillis = runtimeConnectToNpsTimeoutMillis;
         if (proxyOperator.hasProxy(ProxyOperator.TO_NEO)) {
             debug("Connecting to NeoProxyServer transfer port through per-instance proxy. target="
                     + runtimeCfg.getRemoteDomainName() + ":" + runtimeCfg.getHostConnectPort()
-                    + ", timeoutMs=" + CONNECT_TIMEOUT_MILLIS);
+                    + ", timeoutMs=" + timeoutMillis);
             return proxyOperator.getHandledSecureSocket(
                     ProxyOperator.TO_NEO,
                     runtimeCfg.getHostConnectPort(),
-                    CONNECT_TIMEOUT_MILLIS
+                    timeoutMillis
             );
         }
 
@@ -724,10 +773,10 @@ public final class NeoLinkAPI implements AutoCloseable {
         try {
             debug("Connecting to NeoProxyServer transfer port directly. target="
                     + runtimeCfg.getRemoteDomainName() + ":" + runtimeCfg.getHostConnectPort()
-                    + ", timeoutMs=" + CONNECT_TIMEOUT_MILLIS);
+                    + ", timeoutMs=" + timeoutMillis);
             socket.connect(
                     new InetSocketAddress(runtimeCfg.getRemoteDomainName(), runtimeCfg.getHostConnectPort()),
-                    CONNECT_TIMEOUT_MILLIS
+                    timeoutMillis
             );
             unregisterConnection(socket);
             return new SecureSocket(socket);
@@ -833,6 +882,62 @@ public final class NeoLinkAPI implements AutoCloseable {
         }
     }
 
+    private void awaitRuntime(Future<?> activeSupervisorFuture)
+            throws IOException, UnsupportedVersionException, NoSuchKeyException, NoMoreNetworkFlowException {
+        if (activeSupervisorFuture == null) {
+            return;
+        }
+
+        try {
+            activeSupervisorFuture.get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("等待 NeoLinkAPI 运行结束时线程被中断。", e);
+        } catch (CancellationException e) {
+            if (!closeRequested.get()) {
+                throw new IOException("NeoLinkAPI 运行任务被取消。", e);
+            }
+        } catch (ExecutionException e) {
+            throw unwrapLifecycleFailure("NeoLinkAPI 运行失败。", e.getCause());
+        }
+    }
+
+    private IOException unwrapLifecycleFailureAsIOException(String fallbackMessage, Throwable cause) {
+        if (cause instanceof IOException ioException) {
+            return ioException;
+        }
+        if (cause instanceof RuntimeException runtimeException) {
+            throw runtimeException;
+        }
+        if (cause instanceof Error error) {
+            throw error;
+        }
+        return new IOException(fallbackMessage, cause);
+    }
+
+    private <T extends Exception> T castLifecycleFailure(Throwable cause, Class<T> type) {
+        return type.isInstance(cause) ? type.cast(cause) : null;
+    }
+
+    private IOException unwrapLifecycleFailure(String fallbackMessage, Throwable cause)
+            throws UnsupportedVersionException, NoSuchKeyException, NoMoreNetworkFlowException {
+        UnsupportedVersionException unsupportedVersionException =
+                castLifecycleFailure(cause, UnsupportedVersionException.class);
+        if (unsupportedVersionException != null) {
+            throw unsupportedVersionException;
+        }
+        NoSuchKeyException noSuchKeyException = castLifecycleFailure(cause, NoSuchKeyException.class);
+        if (noSuchKeyException != null) {
+            throw noSuchKeyException;
+        }
+        NoMoreNetworkFlowException noMoreNetworkFlowException =
+                castLifecycleFailure(cause, NoMoreNetworkFlowException.class);
+        if (noMoreNetworkFlowException != null) {
+            throw noMoreNetworkFlowException;
+        }
+        return unwrapLifecycleFailureAsIOException(fallbackMessage, cause);
+    }
+
     private void completeStartup(Throwable failure) {
         completeStartup(lifecycleGeneration.get(), failure);
     }
@@ -850,6 +955,11 @@ public final class NeoLinkAPI implements AutoCloseable {
         } else {
             future.completeExceptionally(failure);
         }
+    }
+
+    private boolean isStartupComplete() {
+        CompletableFuture<Void> future = startupFuture;
+        return future != null && future.isDone() && !future.isCompletedExceptionally();
     }
 
     private void cleanupLifecycle(long generation) {
@@ -1051,6 +1161,13 @@ public final class NeoLinkAPI implements AutoCloseable {
         return new IOException(message, cause);
     }
 
+    private static int requirePositive(int value, String fieldName) {
+        if (value < 1) {
+            throw new IllegalArgumentException(fieldName + " must be greater than 0.");
+        }
+        return value;
+    }
+
     private static InetSocketAddress parseRemoteAddress(String remoteAddress) {
         if (remoteAddress == null || remoteAddress.isBlank()) {
             return InetSocketAddress.createUnresolved(UNKNOWN_HOST, 0);
@@ -1147,7 +1264,8 @@ public final class NeoLinkAPI implements AutoCloseable {
                 + ", heartbeatDelayMs=" + activeCfg.getHeartBeatPacketDelay()
                 + ", proxyToNeo=" + (activeCfg.getProxyIPToNeoServer().isBlank() ? "direct" : "configured")
                 + ", proxyToLocal=" + (activeCfg.getProxyIPToLocalServer().isBlank() ? "direct" : "configured")
-                + ", connectTimeoutMs=" + CONNECT_TIMEOUT_MILLIS;
+                + ", connectToNpsTimeoutMs=" + runtimeConnectToNpsTimeoutMillis
+                + ", connectToLocalTimeoutMs=" + DEFAULT_CONNECT_TIMEOUT_MILLIS;
     }
 
     private static String maskClientInfo(String clientInfo) {

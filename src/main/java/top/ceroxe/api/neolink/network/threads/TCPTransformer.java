@@ -3,6 +3,7 @@ package top.ceroxe.api.neolink.network.threads;
 import top.ceroxe.api.net.SecureSocket;
 import top.ceroxe.api.neolink.util.Debugger;
 
+import java.io.ByteArrayOutputStream;
 import java.net.Socket;
 import java.util.Objects;
 import java.util.function.BiConsumer;
@@ -40,7 +41,7 @@ public class TCPTransformer implements Runnable {
             (byte) 0x55, (byte) 0x49, (byte) 0x54, (byte) 0x0A
     };
     private static final int PPV2_MIN_HEADER_LENGTH = 16;
-    public static int BUFFER_LENGTH = 65535; // 可以保持为静态常量
+    private static final int BUFFER_LENGTH = 65535;
     private final Socket plainSocket;
     private final SecureSocket secureSocket;
     private final int mode;
@@ -137,40 +138,23 @@ public class TCPTransformer implements Runnable {
         // 修改：直接获取 OutputStream，不要包裹 BufferedOutputStream
         try (var outputToLocal = plainSocket.getOutputStream()) {
             byte[] data;
-            boolean isFirstPacket = true;
+            ProxyProtocolStripper proxyProtocolStripper = new ProxyProtocolStripper(enableProxyProtocol);
 
             while ((data = secureSocket.receiveBytes()) != null) {
                 if (data.length == 0) continue;
                 debug("Received TCP frame from NeoProxyServer. bytes=" + data.length);
 
-                if (isFirstPacket) {
-                    isFirstPacket = false;
-                    // 检测是否是 Proxy Protocol v2 头
-                    if (isProxyProtocolV2Signature(data)) {
-                        if (this.enableProxyProtocol) {
-                            // 配置为开启：透传给本地后端
-                            debug("Proxy Protocol v2 header detected and passed through to local service.");
-                            outputToLocal.write(data);
-                        } else {
-                            // 配置为关闭：只剥离 PPv2 头，保留同一帧中已经携带的真实业务数据。
-                            int headerLength = proxyProtocolV2HeaderLength(data);
-                            debug("Proxy Protocol v2 header detected and stripped. headerBytes=" + headerLength);
-                            if (data.length > headerLength) {
-                                outputToLocal.write(data, headerLength, data.length - headerLength);
-                            }
-                            continue;
-                        }
-                    } else {
-                        // 不是 PP 头，正常写入
-                        outputToLocal.write(data);
-                    }
-                } else {
-                    // 后续数据正常写入
-                    outputToLocal.write(data);
+                byte[] forwardData = proxyProtocolStripper.accept(data);
+                if (forwardData != null && forwardData.length > 0) {
+                    outputToLocal.write(forwardData);
                 }
 
                 // 移除 flush()，因为 SocketOutputStream 默认是直接发送的，且没有 Buffer 就不需要 flush
                 // outputToLocal.flush();
+            }
+            byte[] trailingFirstFrame = proxyProtocolStripper.finish();
+            if (trailingFirstFrame.length > 0) {
+                outputToLocal.write(trailingFirstFrame);
             }
             debug("NeoProxyServer TCP stream reached EOF.");
             shutdownInput(secureSocket);
@@ -197,16 +181,87 @@ public class TCPTransformer implements Runnable {
         return true;
     }
 
-    private int proxyProtocolV2HeaderLength(byte[] data) {
-        if (data.length < PPV2_MIN_HEADER_LENGTH) {
-            return data.length;
-        }
+    private int declaredProxyProtocolV2HeaderLength(byte[] data) {
         int payloadLength = ((data[14] & 0xFF) << 8) | (data[15] & 0xFF);
-        long headerLength = (long) PPV2_MIN_HEADER_LENGTH + payloadLength;
-        if (headerLength > data.length) {
-            return data.length;
+        return PPV2_MIN_HEADER_LENGTH + payloadLength;
+    }
+
+    private final class ProxyProtocolStripper {
+        private final boolean passThroughProxyProtocol;
+        private ByteArrayOutputStream pendingFirstFrame = new ByteArrayOutputStream(PPV2_MIN_HEADER_LENGTH);
+        private boolean decided;
+
+        private ProxyProtocolStripper(boolean passThroughProxyProtocol) {
+            this.passThroughProxyProtocol = passThroughProxyProtocol;
         }
-        return (int) headerLength;
+
+        private byte[] accept(byte[] data) {
+            if (decided) {
+                return data;
+            }
+
+            pendingFirstFrame.writeBytes(data);
+            byte[] buffered = pendingFirstFrame.toByteArray();
+            if (buffered.length < PPV2_SIG.length) {
+                return null;
+            }
+
+            if (!isProxyProtocolV2Signature(buffered)) {
+                decided = true;
+                pendingFirstFrame = null;
+                return buffered;
+            }
+
+            if (buffered.length < PPV2_MIN_HEADER_LENGTH) {
+                return null;
+            }
+
+            int headerLength = declaredProxyProtocolV2HeaderLength(buffered);
+            if (buffered.length < headerLength) {
+                return null;
+            }
+
+            decided = true;
+            pendingFirstFrame = null;
+            if (passThroughProxyProtocol) {
+                debug("Proxy Protocol v2 header detected and passed through to local service.");
+                return buffered;
+            }
+
+            debug("Proxy Protocol v2 header detected and stripped. headerBytes=" + headerLength);
+            if (buffered.length == headerLength) {
+                return new byte[0];
+            }
+            byte[] stripped = new byte[buffered.length - headerLength];
+            System.arraycopy(buffered, headerLength, stripped, 0, stripped.length);
+            return stripped;
+        }
+
+        private byte[] finish() {
+            if (decided || pendingFirstFrame == null) {
+                return new byte[0];
+            }
+            decided = true;
+            byte[] buffered = pendingFirstFrame.toByteArray();
+            pendingFirstFrame = null;
+            if (!passThroughProxyProtocol && couldBeIncompleteProxyProtocolV2Header(buffered)) {
+                debug("Incomplete Proxy Protocol v2 header discarded. bufferedBytes=" + buffered.length);
+                return new byte[0];
+            }
+            return buffered;
+        }
+
+        private boolean couldBeIncompleteProxyProtocolV2Header(byte[] buffered) {
+            if (buffered.length >= PPV2_SIG.length) {
+                return isProxyProtocolV2Signature(buffered);
+            }
+            for (int i = 0; i < buffered.length; i++) {
+                if (buffered[i] != PPV2_SIG[i]) {
+                    return false;
+                }
+            }
+            return buffered.length > 0;
+        }
     }
 
     @Override

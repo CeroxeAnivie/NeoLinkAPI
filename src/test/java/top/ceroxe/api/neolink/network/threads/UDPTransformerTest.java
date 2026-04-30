@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -65,6 +66,8 @@ class UDPTransformerTest {
     void testBufferLengthConstant() throws Exception {
         var field = UDPTransformer.class.getDeclaredField("BUFFER_LENGTH");
         field.setAccessible(true);
+        assertTrue(Modifier.isPrivate(field.getModifiers()));
+        assertTrue(Modifier.isFinal(field.getModifiers()));
         int value = field.getInt(null);
         assertEquals(65535, value);
     }

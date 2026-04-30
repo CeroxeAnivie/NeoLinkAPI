@@ -81,8 +81,28 @@ public final class NeoLinkCfg {
         }
     }
 
+    static NeoLinkCfg fromRemoteNode(String remoteDomainName, int hookPort, int hostConnectPort) {
+        NeoLinkCfg cfg = new NeoLinkCfg();
+        cfg.remoteDomainName = requireText(remoteDomainName, "remoteDomainName");
+        cfg.hookPort = requirePort(hookPort, "hookPort");
+        cfg.hostConnectPort = requirePort(hostConnectPort, "hostConnectPort");
+        return cfg;
+    }
+
+    private NeoLinkCfg() {
+    }
+
     NeoLinkCfg copy() {
         return new NeoLinkCfg(this);
+    }
+
+    void requireStartReady() {
+        if (key == null || key.isBlank()) {
+            throw new IllegalStateException("key must be configured before starting a NeoLinkCfg fetched from NKM.");
+        }
+        if (localPort < 1 || localPort > 65535) {
+            throw new IllegalStateException("localPort must be configured before starting a NeoLinkCfg fetched from NKM.");
+        }
     }
 
     /**

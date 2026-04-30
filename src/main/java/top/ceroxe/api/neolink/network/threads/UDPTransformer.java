@@ -43,7 +43,7 @@ public class UDPTransformer implements Runnable {
     private static final int SERIALIZED_HEADER_FIXED_LENGTH = 4 + 4 + 4 + 2;
     private static final int IPV4_LENGTH = 4;
     private static final int IPV6_LENGTH = 16;
-    public static int BUFFER_LENGTH = 65535; // 可以保持为静态常量
+    private static final int BUFFER_LENGTH = 65535;
 
     private final DatagramSocket plainSocket;
     private final SecureSocket secureSocket;

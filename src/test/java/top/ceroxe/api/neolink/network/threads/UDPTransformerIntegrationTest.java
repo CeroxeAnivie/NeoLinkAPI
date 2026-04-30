@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.lang.reflect.Modifier;
 import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -167,6 +168,8 @@ class UDPTransformerIntegrationTest {
     void testBufferLengthConstant() throws Exception {
         var field = UDPTransformer.class.getDeclaredField("BUFFER_LENGTH");
         field.setAccessible(true);
+        assertTrue(Modifier.isPrivate(field.getModifiers()));
+        assertTrue(Modifier.isFinal(field.getModifiers()));
         int value = field.getInt(null);
         assertEquals(65535, value);
     }
