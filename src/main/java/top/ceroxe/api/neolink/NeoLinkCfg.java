@@ -81,17 +81,6 @@ public final class NeoLinkCfg {
         }
     }
 
-    static NeoLinkCfg fromRemoteNode(String remoteDomainName, int hookPort, int hostConnectPort) {
-        NeoLinkCfg cfg = new NeoLinkCfg();
-        cfg.remoteDomainName = requireText(remoteDomainName, "remoteDomainName");
-        cfg.hookPort = requirePort(hookPort, "hookPort");
-        cfg.hostConnectPort = requirePort(hostConnectPort, "hostConnectPort");
-        return cfg;
-    }
-
-    private NeoLinkCfg() {
-    }
-
     NeoLinkCfg copy() {
         return new NeoLinkCfg(this);
     }

@@ -122,7 +122,7 @@ public class Example {
 
 ## NKM 节点列表
 
-`NodeFetcher` 会从 NKM 节点列表接口读取在线公开节点，返回以 `realId` 为 key 的 `Map<String, NeoNode>`。`NeoNode` 保存 NKM JSON 中的展示名、稳定节点 ID、地址、可选 SVG 图标和端口信息；需要启动隧道时调用 `toCfg()` 转换为 `NeoLinkCfg`。
+`NodeFetcher` 会从 NKM 节点列表接口读取在线公开节点，返回以 `realId` 为 key 的 `Map<String, NeoNode>`。`NeoNode` 保存 NKM JSON 中的展示名、稳定节点 ID、地址、可选 SVG 图标和端口信息；需要启动隧道时调用 `toCfg(key, localPort)` 转换为完整 `NeoLinkCfg`。
 
 ```java
 Map<String, NeoNode> nodes = NodeFetcher.getFromNKM("https://p.ceroxe.fun:49999/client/nodelist");
@@ -135,12 +135,10 @@ Map<String, NeoNode> nodesWithTimeout = NodeFetcher.getFromNKM(
 NeoNode node = nodes.get("node-suqian");
 System.out.println("selected node: " + node.getName());
 
-NeoLinkCfg cfg = node.toCfg()
-        .setKey("your-key")
-        .setLocalPort(25565);
+NeoLinkCfg cfg = node.toCfg("your-key", 25565);
 ```
 
-`NeoNode.toCfg()` 只把远端连接端点写入 `NeoLinkCfg`。`key` 和 `localPort` 属于调用方私有配置，必须在 `NeoLinkAPI.start()` 前显式设置；否则 API 会拒绝启动，避免把不完整配置延迟到网络握手阶段才失败。
+`NeoNode.toCfg(key, localPort)` 会把远端连接端点、访问密钥和本地下游端口一次性写入 `NeoLinkCfg`。`key` 和 `localPort` 属于调用方私有配置，必须在转换时显式提供；否则 API 会立即拒绝创建配置，避免把不完整配置延迟到启动阶段才失败。
 
 ### `NeoNode`
 
@@ -152,7 +150,7 @@ NKM 公共节点模型：
 - `getIconSvg()`：节点 SVG 图标；NKM 未提供时为 `null`。
 - `getHookPort()`：控制连接端口。
 - `getConnectPort()`：数据传输连接端口。
-- `toCfg()`：转换为只包含远端端点的 `NeoLinkCfg`，调用方仍需补齐访问密钥和本地下游端口。
+- `toCfg(key, localPort)`：转换为完整 `NeoLinkCfg`，调用方必须显式传入访问密钥和本地下游端口。
 
 ## 代理示例
 
@@ -372,7 +370,7 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 
 ## 7.1.0 NKM node fetcher
 
-`NodeFetcher.getFromNKM(url)` and `NodeFetcher.getFromNKM(url, timeoutMillis)` now fetch NKM public nodes and return `Map<String, NeoNode>` keyed by stable `realId`. `NeoNode.toCfg()` converts a selected public node to a `NeoLinkCfg` endpoint skeleton.
+`NodeFetcher.getFromNKM(url)` and `NodeFetcher.getFromNKM(url, timeoutMillis)` now fetch NKM public nodes and return `Map<String, NeoNode>` keyed by stable `realId`. `NeoNode.toCfg(key, localPort)` converts a selected public node to a complete `NeoLinkCfg`.
 
 ## 7.0.2 blocking start and NPS timeout
 

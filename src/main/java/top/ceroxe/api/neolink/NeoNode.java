@@ -8,7 +8,7 @@ import java.util.Objects;
  * <p>NKM nodes carry UI metadata such as display name and icon beside the
  * connection endpoint. {@link NeoLinkCfg} intentionally stores only tunnel
  * startup configuration, so this type keeps the complete node-list payload and
- * exposes {@link #toCfg()} for callers that want to start a tunnel from a
+ * exposes {@link #toCfg(String, int)} for callers that want to start a tunnel from a
  * selected node.</p>
  */
 public final class NeoNode {
@@ -40,17 +40,20 @@ public final class NeoNode {
     }
 
     /**
-     * Converts this public-node metadata into a tunnel configuration skeleton.
+     * Converts this public-node metadata into a complete tunnel configuration.
      *
-     * <p>The returned config intentionally contains only the remote endpoint.
-     * Access key and local downstream port are caller-owned private values and
-     * must be set with {@link NeoLinkCfg#setKey(String)} and
-     * {@link NeoLinkCfg#setLocalPort(int)} before {@link NeoLinkAPI#start()}.</p>
+     * <p>NKM only provides the public remote endpoint. The access key and local
+     * downstream port are caller-owned private values, so this conversion
+     * requires them up front instead of creating a partially usable config that
+     * can fail later during tunnel startup.</p>
      *
-     * @return a NeoLink configuration built from this node's remote endpoint
+     * @param key access key for the selected NeoProxyServer node
+     * @param localPort local downstream service port
+     * @return a NeoLink configuration built from this node and caller-owned values
+     * @throws IllegalArgumentException when {@code key} is blank or {@code localPort} is outside 1..65535
      */
-    public NeoLinkCfg toCfg() {
-        return NeoLinkCfg.fromRemoteNode(address, hookPort, connectPort);
+    public NeoLinkCfg toCfg(String key, int localPort) {
+        return new NeoLinkCfg(address, hookPort, connectPort, key, localPort);
     }
 
     public String getName() {

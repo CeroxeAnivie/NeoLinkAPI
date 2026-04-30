@@ -20,7 +20,7 @@ import java.util.Objects;
  *
  * <p>The returned {@link NeoNode} values preserve NKM display metadata such as
  * {@code name}, stable {@code realId}, optional SVG icon and connection ports.
- * Call {@link NeoNode#toCfg()} when a selected public node needs to become a
+ * Call {@link NeoNode#toCfg(String, int)} when a selected public node needs to become a
  * {@link NeoLinkCfg} tunnel configuration.</p>
  */
 public final class NodeFetcher {

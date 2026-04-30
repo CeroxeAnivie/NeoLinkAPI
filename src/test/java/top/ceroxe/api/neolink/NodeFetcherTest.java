@@ -43,10 +43,12 @@ class NodeFetcherTest {
             assertEquals(44801, node.getHookPort());
             assertEquals(44802, node.getConnectPort());
 
-            NeoLinkCfg cfg = node.toCfg();
+            NeoLinkCfg cfg = node.toCfg("key", 25565);
             assertEquals("p.ceroxe.top", cfg.getRemoteDomainName());
             assertEquals(44801, cfg.getHookPort());
             assertEquals(44802, cfg.getHostConnectPort());
+            assertEquals("key", cfg.getKey());
+            assertEquals(25565, cfg.getLocalPort());
         }
     }
 
@@ -102,16 +104,16 @@ class NodeFetcherTest {
     }
 
     @Test
-    @DisplayName("从 NKM 得到的配置必须补齐 key 和 localPort 后才能启动")
-    void nkmConfigRequiresCallerOwnedFieldsBeforeStart() throws Exception {
+    @DisplayName("从 NKM 得到的配置必须在 toCfg 时提供 key 和 localPort")
+    void nkmConfigRequiresCallerOwnedFieldsDuringConversion() throws Exception {
         Map<String, NeoNode> nodes = NodeFetcher.parseNodeMap("""
                 [{"realId":"node-1","name":"Local","address":"localhost"}]
                 """);
-        NeoLinkCfg cfg = nodes.get("node-1").toCfg();
+        NeoNode node = nodes.get("node-1");
+        assertThrows(IllegalArgumentException.class, () -> node.toCfg(" ", 25565));
+        assertThrows(IllegalArgumentException.class, () -> node.toCfg("key", 0));
 
-        assertThrows(IllegalStateException.class, () -> new NeoLinkAPI(cfg).start(1));
-
-        cfg.setKey("key").setLocalPort(25565);
+        NeoLinkCfg cfg = node.toCfg("key", 25565);
         assertThrows(IOException.class, () -> new NeoLinkAPI(cfg).start(1));
     }
 
@@ -129,10 +131,15 @@ class NodeFetcherTest {
         assertEquals("host.example.com", node.getAddress());
         assertNull(node.getIconSvg());
 
-        NeoLinkCfg cfg = node.toCfg();
+        assertThrows(IllegalArgumentException.class, () -> node.toCfg(null, 25565));
+        assertThrows(IllegalArgumentException.class, () -> node.toCfg("key", 65536));
+
+        NeoLinkCfg cfg = node.toCfg("key", 25565);
         assertEquals("host.example.com", cfg.getRemoteDomainName());
         assertEquals(44801, cfg.getHookPort());
         assertEquals(44802, cfg.getHostConnectPort());
+        assertEquals("key", cfg.getKey());
+        assertEquals(25565, cfg.getLocalPort());
     }
 
     @Test
