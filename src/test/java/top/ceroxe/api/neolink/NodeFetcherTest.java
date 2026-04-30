@@ -15,14 +15,15 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("NodeFetcher NKM 节点获取")
 class NodeFetcherTest {
     @Test
-    @DisplayName("getFromNKM 应按 realId 返回 NeoLinkCfg")
-    void getFromNkmReturnsConfigsKeyedByRealId() throws Exception {
+    @DisplayName("getFromNKM 应按 realId 返回完整 NeoNode")
+    void getFromNkmReturnsNodesKeyedByRealId() throws Exception {
         String payload = """
                 [
                   {
                     "realId": "node-suqian",
                     "name": "中国 - 宿迁官方",
                     "address": "p.ceroxe.top",
+                    "icon": "<svg viewBox='0 0 1 1'></svg>",
                     "HOST_HOOK_PORT": 44801,
                     "HOST_CONNECT_PORT": "44802"
                   }
@@ -30,11 +31,19 @@ class NodeFetcherTest {
                 """;
 
         try (TestHttpServer server = TestHttpServer.responding(200, payload)) {
-            Map<String, NeoLinkCfg> nodes = NodeFetcher.getFromNKM(server.url(), 1000);
+            Map<String, NeoNode> nodes = NodeFetcher.getFromNKM(server.url(), 1000);
 
             assertEquals(1, nodes.size());
-            NeoLinkCfg cfg = nodes.get("node-suqian");
-            assertNotNull(cfg);
+            NeoNode node = nodes.get("node-suqian");
+            assertNotNull(node);
+            assertEquals("中国 - 宿迁官方", node.getName());
+            assertEquals("node-suqian", node.getRealId());
+            assertEquals("p.ceroxe.top", node.getAddress());
+            assertEquals("<svg viewBox='0 0 1 1'></svg>", node.getIconSvg());
+            assertEquals(44801, node.getHookPort());
+            assertEquals(44802, node.getConnectPort());
+
+            NeoLinkCfg cfg = node.toCfg();
             assertEquals("p.ceroxe.top", cfg.getRemoteDomainName());
             assertEquals(44801, cfg.getHookPort());
             assertEquals(44802, cfg.getHostConnectPort());
@@ -44,13 +53,15 @@ class NodeFetcherTest {
     @Test
     @DisplayName("端口缺省时应使用桌面客户端一致的默认值")
     void missingPortsUseDesktopDefaults() throws Exception {
-        Map<String, NeoLinkCfg> nodes = NodeFetcher.parseNodeMap("""
-                [{"realId":"node-default","address":"nps.example.com"}]
+        Map<String, NeoNode> nodes = NodeFetcher.parseNodeMap("""
+                [{"realId":"node-default","name":"Default Node","address":"nps.example.com"}]
                 """);
 
-        NeoLinkCfg cfg = nodes.get("node-default");
-        assertEquals(NodeFetcher.DEFAULT_HOST_HOOK_PORT, cfg.getHookPort());
-        assertEquals(NodeFetcher.DEFAULT_HOST_CONNECT_PORT, cfg.getHostConnectPort());
+        NeoNode node = nodes.get("node-default");
+        assertEquals("Default Node", node.getName());
+        assertNull(node.getIconSvg());
+        assertEquals(NodeFetcher.DEFAULT_HOST_HOOK_PORT, node.getHookPort());
+        assertEquals(NodeFetcher.DEFAULT_HOST_CONNECT_PORT, node.getConnectPort());
     }
 
     @Test
@@ -58,8 +69,8 @@ class NodeFetcherTest {
     void duplicateRealIdFails() {
         IOException error = assertThrows(IOException.class, () -> NodeFetcher.parseNodeMap("""
                 [
-                  {"realId":"node-1","address":"a.example.com"},
-                  {"realId":"node-1","address":"b.example.com"}
+                  {"realId":"node-1","name":"Node A","address":"a.example.com"},
+                  {"realId":"node-1","name":"Node B","address":"b.example.com"}
                 ]
                 """));
 
@@ -73,10 +84,10 @@ class NodeFetcherTest {
         assertThrows(IOException.class, () -> NodeFetcher.parseNodeMap("{}"));
         assertThrows(IOException.class, () -> NodeFetcher.parseNodeMap("[{}]"));
         assertThrows(IOException.class, () -> NodeFetcher.parseNodeMap("""
-                [{"realId":"node-1","address":"nps.example.com","HOST_HOOK_PORT":0}]
+                [{"realId":"node-1","name":"Node","address":"nps.example.com","HOST_HOOK_PORT":0}]
                 """));
         assertThrows(IOException.class, () -> NodeFetcher.parseNodeMap("""
-                [{"realId":"node-1","address":"nps.example.com","HOST_HOOK_PORT":44801.5}]
+                [{"realId":"node-1","name":"Node","address":"nps.example.com","HOST_HOOK_PORT":44801.5}]
                 """));
     }
 
@@ -93,15 +104,35 @@ class NodeFetcherTest {
     @Test
     @DisplayName("从 NKM 得到的配置必须补齐 key 和 localPort 后才能启动")
     void nkmConfigRequiresCallerOwnedFieldsBeforeStart() throws Exception {
-        Map<String, NeoLinkCfg> nodes = NodeFetcher.parseNodeMap("""
-                [{"realId":"node-1","address":"localhost"}]
+        Map<String, NeoNode> nodes = NodeFetcher.parseNodeMap("""
+                [{"realId":"node-1","name":"Local","address":"localhost"}]
                 """);
-        NeoLinkCfg cfg = nodes.get("node-1");
+        NeoLinkCfg cfg = nodes.get("node-1").toCfg();
 
         assertThrows(IllegalStateException.class, () -> new NeoLinkAPI(cfg).start(1));
 
         cfg.setKey("key").setLocalPort(25565);
         assertThrows(IOException.class, () -> new NeoLinkAPI(cfg).start(1));
+    }
+
+    @Test
+    @DisplayName("NeoNode 手动构造时应校验核心字段并可转换为 NeoLinkCfg")
+    void neoNodeValidatesCoreFieldsAndConvertsToCfg() {
+        assertThrows(IllegalArgumentException.class, () -> new NeoNode("", "id", "host", null, 44801, 44802));
+        assertThrows(IllegalArgumentException.class, () -> new NeoNode("Node", "id", "", null, 44801, 44802));
+        assertThrows(IllegalArgumentException.class, () -> new NeoNode("Node", "id", "host", null, 0, 44802));
+        assertThrows(IllegalArgumentException.class, () -> new NeoNode("Node", "id", "host", null, 44801, 65536));
+
+        NeoNode node = new NeoNode(" Node ", " id ", " host.example.com ", " ", 44801, 44802);
+        assertEquals("Node", node.getName());
+        assertEquals("id", node.getRealId());
+        assertEquals("host.example.com", node.getAddress());
+        assertNull(node.getIconSvg());
+
+        NeoLinkCfg cfg = node.toCfg();
+        assertEquals("host.example.com", cfg.getRemoteDomainName());
+        assertEquals(44801, cfg.getHookPort());
+        assertEquals(44802, cfg.getHostConnectPort());
     }
 
     @Test

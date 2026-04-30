@@ -16,13 +16,12 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Fetches public NeoLink node definitions from NKM and converts them to API configs.
+ * Fetches public NeoLink node definitions from NKM.
  *
- * <p>NKM only owns the remote node identity and connection endpoint. The returned
- * {@link NeoLinkCfg} instances therefore contain remote address, hook port and
- * transfer port only; callers must set their own access key and local service port
- * with {@link NeoLinkCfg#setKey(String)} and {@link NeoLinkCfg#setLocalPort(int)}
- * before passing the config to {@link NeoLinkAPI#start()}.</p>
+ * <p>The returned {@link NeoNode} values preserve NKM display metadata such as
+ * {@code name}, stable {@code realId}, optional SVG icon and connection ports.
+ * Call {@link NeoNode#toCfg()} when a selected public node needs to become a
+ * {@link NeoLinkCfg} tunnel configuration.</p>
  */
 public final class NodeFetcher {
     public static final int DEFAULT_TIMEOUT_MILLIS = 1000;
@@ -39,12 +38,12 @@ public final class NodeFetcher {
      * @return insertion-ordered map keyed by NKM {@code realId}
      * @throws IOException when the endpoint, HTTP status or JSON payload is invalid
      */
-    public static Map<String, NeoLinkCfg> getFromNKM(String url) throws IOException {
+    public static Map<String, NeoNode> getFromNKM(String url) throws IOException {
         return getFromNKM(url, DEFAULT_TIMEOUT_MILLIS);
     }
 
     /**
-     * Fetches NKM nodes and returns configs keyed by stable {@code realId}.
+     * Fetches NKM nodes keyed by stable {@code realId}.
      *
      * @param url NKM node-list endpoint
      * @param timeoutMillis connect and read timeout in milliseconds
@@ -52,7 +51,7 @@ public final class NodeFetcher {
      * @throws IllegalArgumentException when {@code url} is malformed or timeout is not positive
      * @throws IOException when the HTTP status or JSON payload is invalid
      */
-    public static Map<String, NeoLinkCfg> getFromNKM(String url, int timeoutMillis) throws IOException {
+    public static Map<String, NeoNode> getFromNKM(String url, int timeoutMillis) throws IOException {
         URI endpoint = parseEndpoint(url);
         if (timeoutMillis < 1) {
             throw new IllegalArgumentException("timeoutMillis must be greater than 0.");
@@ -83,7 +82,7 @@ public final class NodeFetcher {
         return parseNodeMap(response.body());
     }
 
-    static Map<String, NeoLinkCfg> parseNodeMap(String json) throws IOException {
+    static Map<String, NeoNode> parseNodeMap(String json) throws IOException {
         JsonElement root;
         try {
             root = JsonParser.parseString(Objects.requireNonNull(json, "json"));
@@ -94,7 +93,7 @@ public final class NodeFetcher {
             throw new IOException("NKM node-list root must be a JSON array.");
         }
 
-        Map<String, NeoLinkCfg> result = new LinkedHashMap<>();
+        Map<String, NeoNode> result = new LinkedHashMap<>();
         for (JsonElement node : root.getAsJsonArray()) {
             if (!node.isJsonObject()) {
                 throw new IOException("NKM node-list contains a non-object entry.");
@@ -102,14 +101,17 @@ public final class NodeFetcher {
 
             JsonObject item = node.getAsJsonObject();
             String realId = readText(item, "realId", "realid");
+            String name = readText(item, "name");
             String address = readText(item, "address");
-            if (isBlank(realId) || isBlank(address)) {
-                throw new IOException("NKM node-list entry must contain non-blank realId and address.");
+            if (isBlank(realId) || isBlank(name) || isBlank(address)) {
+                throw new IOException("NKM node-list entry must contain non-blank realId, name and address.");
             }
 
+            String iconSvg = readText(item, "icon", "iconSvg");
             int hookPort = readPort(item, DEFAULT_HOST_HOOK_PORT, "HOST_HOOK_PORT", "hookPort");
             int connectPort = readPort(item, DEFAULT_HOST_CONNECT_PORT, "HOST_CONNECT_PORT", "connectPort");
-            if (result.put(realId, NeoLinkCfg.fromRemoteNode(address, hookPort, connectPort)) != null) {
+            NeoNode parsedNode = new NeoNode(name, realId, address, iconSvg, hookPort, connectPort);
+            if (result.put(realId, parsedNode) != null) {
                 throw new IOException("NKM node-list contains duplicate realId: " + realId);
             }
         }
