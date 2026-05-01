@@ -22,6 +22,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -32,7 +33,6 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
-import java.util.function.IntConsumer;
 
 /**
  * NeoLinkAPI 的唯一隧道控制入口。
@@ -54,16 +54,19 @@ public final class NeoLinkAPI implements AutoCloseable {
     };
     private static final Consumer<String> NOOP_MESSAGE_HANDLER = message -> {
     };
-    private static final IntConsumer NOOP_PORT_HANDLER = port -> {
-    };
     private static final ConnectionEventHandler NOOP_CONNECTION_EVENT_HANDLER = (protocol, source, target) -> {
     };
     private static final BiConsumer<String, Throwable> NOOP_ERROR_HANDLER = (message, cause) -> {
     };
     private static final Function<String, Boolean> REQUEST_UNSUPPORTED_VERSION_UPDATE = response -> true;
+    private static final String EN_TUN_ADDR_PREFIX = "Use the address: ";
+    private static final String EN_TUN_ADDR_SUFFIX = " to start up connections.";
+    private static final String ZH_TUN_ADDR_PREFIX = "使用链接地址： ";
+    private static final String ZH_TUN_ADDR_SUFFIX = " 来从公网连接。";
 
     private final NeoLinkCfg cfg;
     private final Object lifecycleLock = new Object();
+    private final CountDownLatch tunAddrReady = new CountDownLatch(1);
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean closeRequested = new AtomicBoolean(false);
     private final AtomicLong lifecycleGeneration = new AtomicLong(0);
@@ -78,8 +81,8 @@ public final class NeoLinkAPI implements AutoCloseable {
     private volatile Socket connectingSocket;
     private volatile Future<?> supervisorFuture;
     private volatile String updateUrl;
+    private volatile String tunAddr;
     private volatile long lastReceivedTime = System.currentTimeMillis();
-    private volatile int remotePort;
     private volatile int runtimeConnectToNpsTimeoutMillis = DEFAULT_CONNECT_TIMEOUT_MILLIS;
     private volatile NeoLinkState state = NeoLinkState.STOPPED;
 
@@ -90,7 +93,6 @@ public final class NeoLinkAPI implements AutoCloseable {
     private volatile Consumer<NeoLinkState> onStateChanged = NOOP_STATE_HANDLER;
     private volatile BiConsumer<String, Throwable> onError = NOOP_ERROR_HANDLER;
     private volatile Consumer<String> onServerMessage = NOOP_MESSAGE_HANDLER;
-    private volatile IntConsumer onRemotePortChanged = NOOP_PORT_HANDLER;
     private volatile Function<String, Boolean> unsupportedVersionDecision = REQUEST_UNSUPPORTED_VERSION_UPDATE;
     private volatile BiConsumer<String, Throwable> debugSink = NeoLinkAPI::defaultDebugSink;
 
@@ -161,7 +163,6 @@ public final class NeoLinkAPI implements AutoCloseable {
                     runtimeCfg.getProxyIPToLocalServer()
             );
             updateUrl = null;
-            remotePort = 0;
             runtimeConnectToNpsTimeoutMillis = validatedConnectToNpsTimeoutMillis;
             notifyStarting = moveStateTo(NeoLinkState.STARTING);
             debug("Starting NeoLinkAPI tunnel. " + describeRuntimeConfig());
@@ -210,12 +211,34 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     /**
-     * 返回服务端下发的公网端口。
+     * 阻塞等待 NeoProxyServer 明确下发的远程连接地址。
      *
-     * @return 尚未收到端口时返回 {@code 0}
+     * <p>NPS 在隧道注册成功后会通过控制连接发送完整的客户端可见连接地址，例如
+     * {@code p.ceroxe.fun:45678}。API 必须以该地址为准，不能让调用方根据远端域名和
+     * 下发端口自行拼接，否则会破坏服务端对公网域名、反代入口或未来 URL 形态的控制权。
+     * 如果在 {@link #start()} 前调用，本方法会一直阻塞到当前对象实际收到地址；一旦
+     * 收到过地址，后续调用立即返回最近一次地址。</p>
+     *
+     * @return NeoProxyServer 下发的远程连接地址
      */
-    public int getRemotePort() {
-        return remotePort;
+    public String getTunAddr() {
+        String currentTunAddr = tunAddr;
+        if (currentTunAddr != null) {
+            return currentTunAddr;
+        }
+
+        boolean interrupted = false;
+        while (true) {
+            try {
+                tunAddrReady.await();
+                if (interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+                return tunAddr;
+            } catch (InterruptedException e) {
+                interrupted = true;
+            }
+        }
     }
 
     /**
@@ -290,17 +313,6 @@ public final class NeoLinkAPI implements AutoCloseable {
      */
     public NeoLinkAPI setOnServerMessage(Consumer<String> onServerMessage) {
         this.onServerMessage = Objects.requireNonNull(onServerMessage, "onServerMessage");
-        return this;
-    }
-
-    /**
-     * 设置公网端口更新回调。
-     *
-     * @param onRemotePortChanged 服务端下发公网端口时触发
-     * @return 当前隧道对象，便于链式调用
-     */
-    public NeoLinkAPI setOnRemotePortChanged(IntConsumer onRemotePortChanged) {
-        this.onRemotePortChanged = Objects.requireNonNull(onRemotePortChanged, "onRemotePortChanged");
         return this;
     }
 
@@ -557,6 +569,7 @@ public final class NeoLinkAPI implements AutoCloseable {
             if (message.startsWith(":>")) {
                 handleServerCommand(message.substring(2));
             } else {
+                captureTunAddrIfPresent(message);
                 emitServerMessage(message);
                 debug("Ignored non-command server message.");
             }
@@ -591,16 +604,7 @@ public final class NeoLinkAPI implements AutoCloseable {
                 closeActiveConnection();
                 throw exception;
             }
-            default -> updateRemotePort(parts[0]);
-        }
-    }
-
-    private void updateRemotePort(String value) {
-        try {
-            setRemotePort(Integer.parseInt(value));
-            debug("Remote public port updated. remotePort=" + remotePort);
-        } catch (NumberFormatException e) {
-            debug("Ignored unknown server command. value=" + value);
+            default -> debug("Ignored unknown server command. value=" + parts[0]);
         }
     }
 
@@ -994,7 +998,6 @@ public final class NeoLinkAPI implements AutoCloseable {
         closeAllTrackedConnections();
         connectingSocket = null;
         hookSocket = null;
-        remotePort = 0;
     }
 
     private void registerConnection(Closeable closeable) {
@@ -1067,16 +1070,14 @@ public final class NeoLinkAPI implements AutoCloseable {
         }
     }
 
-    private void setRemotePort(int remotePort) {
-        if (this.remotePort == remotePort) {
+    private void captureTunAddrIfPresent(String message) {
+        String parsedTunAddr = parseTunAddrMessage(message);
+        if (parsedTunAddr == null) {
             return;
         }
-        this.remotePort = remotePort;
-        try {
-            onRemotePortChanged.accept(remotePort);
-        } catch (RuntimeException e) {
-            debug(e);
-        }
+        tunAddr = parsedTunAddr;
+        tunAddrReady.countDown();
+        debug("Tunnel address received from NeoProxyServer. value=" + parsedTunAddr);
     }
 
     private boolean shouldRequestUnsupportedVersionUpdate(String serverResponse) {
@@ -1152,6 +1153,31 @@ public final class NeoLinkAPI implements AutoCloseable {
                 || response.contains("already")
                 || response.contains("过期")
                 || response.contains("占");
+    }
+
+    static String parseTunAddrMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return null;
+        }
+        String fromEnglishMessage = extractBetween(message, EN_TUN_ADDR_PREFIX, EN_TUN_ADDR_SUFFIX);
+        if (fromEnglishMessage != null) {
+            return fromEnglishMessage;
+        }
+        return extractBetween(message, ZH_TUN_ADDR_PREFIX, ZH_TUN_ADDR_SUFFIX);
+    }
+
+    private static String extractBetween(String value, String prefix, String suffix) {
+        int start = value.indexOf(prefix);
+        if (start < 0) {
+            return null;
+        }
+        int addressStart = start + prefix.length();
+        int end = value.indexOf(suffix, addressStart);
+        if (end < 0) {
+            return null;
+        }
+        String address = value.substring(addressStart, end).trim();
+        return address.isEmpty() ? null : address;
     }
 
     private static IOException toIOException(String message, Exception cause) {

@@ -74,13 +74,25 @@ class NeoLinkAPILifecycleTest {
     }
 
     @Test
-    @DisplayName("生命周期、端口和服务端消息应通过稳定回调暴露")
-    void lifecyclePortAndServerMessagesAreObservable() throws Exception {
-        CountDownLatch remotePortUpdated = new CountDownLatch(1);
-        CountDownLatch serverMessageReceived = new CountDownLatch(1);
+    @DisplayName("NPS 下发的中英文连接地址消息应解析为纯隧道地址")
+    void npsTunnelAddressMessagesAreParsedAsPlainAddress() {
+        assertEquals(
+                "p.ceroxe.fun:45678",
+                NeoLinkAPI.parseTunAddrMessage("Use the address: p.ceroxe.fun:45678 to start up connections.")
+        );
+        assertEquals(
+                "p.ceroxe.top:45678",
+                NeoLinkAPI.parseTunAddrMessage("使用链接地址： p.ceroxe.top:45678 来从公网连接。")
+        );
+        assertNull(NeoLinkAPI.parseTunAddrMessage("traffic warning from server"));
+    }
+
+    @Test
+    @DisplayName("生命周期、隧道地址和服务端消息应通过稳定 API 暴露")
+    void lifecycleTunnelAddressAndServerMessagesAreObservable() throws Exception {
+        CountDownLatch serverMessageReceived = new CountDownLatch(2);
         AtomicReference<Throwable> serverError = new AtomicReference<>();
-        AtomicReference<String> serverMessage = new AtomicReference<>();
-        AtomicReference<Integer> remotePort = new AtomicReference<>();
+        List<String> serverMessages = new CopyOnWriteArrayList<>();
         List<NeoLinkState> states = new CopyOnWriteArrayList<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
@@ -89,6 +101,7 @@ class NeoLinkAPILifecycleTest {
                     assertNotNull(socket.receiveStr(2000));
                     socket.sendStr("Connection built successfully");
                     socket.sendStr(":>45678");
+                    socket.sendStr("Use the address: tunnel.example.test:45678 to start up connections.");
                     socket.sendStr("traffic warning from server");
                     Thread.sleep(2000);
                 } catch (Throwable e) {
@@ -101,26 +114,25 @@ class NeoLinkAPILifecycleTest {
                     .setUDPEnabled(false);
             NeoLinkAPI neoLink = new NeoLinkAPI(cfg)
                     .setOnStateChanged(states::add)
-                    .setOnRemotePortChanged(port -> {
-                        remotePort.set(port);
-                        remotePortUpdated.countDown();
-                    })
                     .setOnServerMessage(message -> {
-                        serverMessage.set(message);
+                        serverMessages.add(message);
                         serverMessageReceived.countDown();
                     });
 
+            CompletableFuture<String> tunAddrBeforeStart = CompletableFuture.supplyAsync(neoLink::getTunAddr);
+            Thread.sleep(100);
+            assertFalse(tunAddrBeforeStart.isDone(), "getTunAddr() must block before NPS returns the tunnel address.");
+
             CompletableFuture<Void> startFuture = startAsync(neoLink);
-            assertTrue(remotePortUpdated.await(3, TimeUnit.SECONDS));
             assertTrue(serverMessageReceived.await(3, TimeUnit.SECONDS));
             assertFalse(startFuture.isDone(), "start() must keep blocking after startup succeeds.");
 
             assertNotNull(neoLink.getHookSocket());
             assertTrue(neoLink.getHookSocket().isConnected());
             assertNull(neoLink.getUpdateURL());
-            assertEquals(45678, remotePort.get());
-            assertEquals(45678, neoLink.getRemotePort());
-            assertEquals("traffic warning from server", serverMessage.get());
+            assertEquals("tunnel.example.test:45678", tunAddrBeforeStart.get(3, TimeUnit.SECONDS));
+            assertEquals("tunnel.example.test:45678", neoLink.getTunAddr());
+            assertTrue(serverMessages.contains("traffic warning from server"));
             assertTrue(states.contains(NeoLinkState.STARTING));
             assertTrue(states.contains(NeoLinkState.RUNNING));
 

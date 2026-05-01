@@ -41,7 +41,7 @@ class NeoLinkCfgTest {
         assertFalse(cfg.isDebugMsg());
         assertEquals(NeoLinkCfg.ZH_CH, cfg.getLanguage());
         assertEquals(NeoLinkAPI.version(), cfg.getClientVersion());
-        assertEquals("7.1.0", NeoLinkAPI.version());
+        assertEquals("7.1.1", NeoLinkAPI.version());
     }
 
     @Test
@@ -95,8 +95,6 @@ class NeoLinkCfgTest {
         assertSame(neoLink, neoLink.setOnError((message, cause) -> {
         }));
         assertSame(neoLink, neoLink.setOnServerMessage(message -> {
-        }));
-        assertSame(neoLink, neoLink.setOnRemotePortChanged(port -> {
         }));
         assertSame(neoLink, neoLink.setOnConnect((protocol, source, target) -> {
         }));

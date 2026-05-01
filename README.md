@@ -4,7 +4,7 @@ NeoLinkAPI 是面向 Java 应用的嵌入式隧道 API。它不包含 GUI、CLI 
 
 ## 运行要求
 
-NeoLinkAPI 7.1.0 使用 Java 21 构建，并依赖 Java 21 的虚拟线程能力。宿主应用需要使用 JDK 21 或更高版本编译和运行。
+NeoLinkAPI 7.1.1 使用 Java 21 构建，并依赖 Java 21 的虚拟线程能力。宿主应用需要使用 JDK 21 或更高版本编译和运行。
 
 ## 引入API：
 
@@ -14,7 +14,7 @@ Maven：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi</artifactId>
-    <version>7.1.0</version>
+    <version>7.1.1</version>
 </dependency>
 ```
 
@@ -22,7 +22,7 @@ Gradle Kotlin DSL：
 
 ```kotlin
 dependencies {
-    implementation("top.ceroxe.api:neolinkapi:7.1.0")
+    implementation("top.ceroxe.api:neolinkapi:7.1.1")
 }
 ```
 
@@ -30,7 +30,7 @@ Gradle Groovy DSL：
 
 ```groovy
 dependencies {
-    implementation 'top.ceroxe.api:neolinkapi:7.1.0'
+    implementation 'top.ceroxe.api:neolinkapi:7.1.1'
 }
 ```
 
@@ -66,11 +66,6 @@ public class Example {
                         System.out.println("tunnel is running");
                     }
                 })
-                .setOnRemotePortChanged(port -> {
-                    if (port > 0) {
-                        System.out.println("public port: " + port);
-                    }
-                })
                 .setOnServerMessage(message -> {
                     System.out.println("server: " + message);
                 })
@@ -101,21 +96,24 @@ public class Example {
                     }
                 });
 
-        try {
-            Runtime.getRuntime().addShutdownHook(new Thread(tunnel::close));
-            tunnel.start();
-        } catch (UnsupportedVersionException e) {
-            System.err.println("unsupported version: " + e.serverResponse());
-            System.err.println("update URL: " + tunnel.getUpdateURL());
-        } catch (NoSuchKeyException e) {
-            System.err.println("key rejected: " + e.serverResponse());
-        } catch (NoMoreNetworkFlowException e) {
-            System.err.println("no traffic left: " + e.serverResponse());
-        } catch (IOException e) {
-            System.err.println("tunnel I/O failure: " + e.getMessage());
-        } finally {
-            tunnel.close();
-        }
+        Runtime.getRuntime().addShutdownHook(new Thread(tunnel::close));
+        Thread.ofVirtual().start(() -> {
+            try {
+                tunnel.start();
+            } catch (UnsupportedVersionException e) {
+                System.err.println("unsupported version: " + e.serverResponse());
+                System.err.println("update URL: " + tunnel.getUpdateURL());
+            } catch (NoSuchKeyException e) {
+                System.err.println("key rejected: " + e.serverResponse());
+            } catch (NoMoreNetworkFlowException e) {
+                System.err.println("no traffic left: " + e.serverResponse());
+            } catch (IOException e) {
+                System.err.println("tunnel I/O failure: " + e.getMessage());
+            }
+        });
+
+        String tunAddr = tunnel.getTunAddr();
+        System.out.println("用地址 " + tunAddr + " 来连接内网穿透本地服务");
     }
 }
 ```
@@ -322,7 +320,7 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - `start(int connectToNpsTimeoutMillis)`：使用自定义 NPS 连接超时时间启动，单位毫秒，必须大于 `0`。该超时只影响连接 NeoProxyServer 控制端口和传输端口；本地下游连接超时仍使用默认值。
 - `close()`：关闭控制连接、心跳线程、所有活动 TCP/UDP 转发连接和内部 executor，不抛受检异常。
 - `isActive()`：返回隧道是否仍处于活动状态。
-- `getRemotePort()`：读取服务端下发的公网端口；尚未收到时为 `0`。
+- `getTunAddr()`：阻塞等待并返回 NeoProxyServer 下发的完整远程连接地址；可在 `start()` 前调用，收到地址前一直阻塞，收到后后续调用立即返回。
 - `getHookSocket()`：读取当前控制链路 `SecureSocket`；控制链路未建立或已经释放时为 `null`。
 - `getUpdateURL()`：读取版本不兼容流程中 NPS 返回的更新 URL；未触发 `UnsupportedVersionException`、服务端未返回 URL 或返回 `false` 时为 `null`。
 - `getState()`：读取最近一次生命周期状态。
@@ -335,7 +333,6 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - `setOnStateChanged(Consumer<NeoLinkState>)`：生命周期变化时触发，适合驱动 UI、外部 supervisor 或重试策略。
 - `setOnError(BiConsumer<String, Throwable>)`：运行期业务可见错误回调，例如心跳失败、控制连接异常关闭、流量耗尽或转发连接创建失败。
 - `setOnServerMessage(Consumer<String>)`：服务端普通文本消息回调；非 `:>` 控制命令的消息会通过这里交给调用方展示或记录。
-- `setOnRemotePortChanged(IntConsumer)`：服务端下发公网端口时触发；`getRemotePort()` 会同步更新。
 - `setOnConnect(NeoLinkAPI.ConnectionEventHandler)`：转发连接建立时触发，参数依次为协议、远端访问者地址和本地下游地址。`protocol` 为 `TCP` 或 `UDP`。
 - `setOnDisconnect(NeoLinkAPI.ConnectionEventHandler)`：转发连接断开时触发，参数语义同 `setOnConnect`。
 - `setOnConnectNeoFailure(Runnable)`：连接 NeoProxyServer 传输端口失败时触发。
@@ -367,6 +364,10 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - 默认连接超时为 `5000ms`。`start(int connectToNpsTimeoutMillis)` 可单独覆盖连接 NeoProxyServer 控制端口和传输端口的超时时间；本地下游服务连接超时保持 `5000ms`。
 - Debug 日志是英文，包含握手、连接、代理、转发、关闭等细节；密钥在日志中会被遮蔽。推荐通过 `setDebugSink` 接管实例级调试输出，避免库直接污染宿主应用控制台。
 - 业务错误走 `setOnError`，生命周期走 `setOnStateChanged`，服务端普通消息走 `setOnServerMessage`，调试细节走 `setDebugSink`。不要用 debug 日志推断业务状态。
+
+## 7.1.1 tunnel address
+
+`getTunAddr()` now returns the full remote connection address provided by NeoProxyServer. The API no longer exposes `setOnRemotePortChanged(IntConsumer)` because callers must not reconstruct the public endpoint from a domain and a numeric port.
 
 ## 7.1.0 NKM node fetcher
 
