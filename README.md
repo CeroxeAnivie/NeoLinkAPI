@@ -4,7 +4,7 @@ NeoLinkAPI 是面向 Java 应用的嵌入式隧道 API。它不包含 GUI、CLI 
 
 ## 运行要求
 
-NeoLinkAPI 7.1.1 使用 Java 21 构建，并依赖 Java 21 的虚拟线程能力。宿主应用需要使用 JDK 21 或更高版本编译和运行。
+NeoLinkAPI 依赖 Java 21 的虚拟线程能力。宿主应用需要使用 JDK 21 或更高版本编译和运行。
 
 ## 引入API：
 
@@ -14,7 +14,7 @@ Maven：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi</artifactId>
-    <version>7.1.1</version>
+    <version>7.1.2</version>
 </dependency>
 ```
 
@@ -22,7 +22,7 @@ Gradle Kotlin DSL：
 
 ```kotlin
 dependencies {
-    implementation("top.ceroxe.api:neolinkapi:7.1.1")
+    implementation("top.ceroxe.api:neolinkapi:7.1.2")
 }
 ```
 
@@ -30,7 +30,7 @@ Gradle Groovy DSL：
 
 ```groovy
 dependencies {
-    implementation 'top.ceroxe.api:neolinkapi:7.1.1'
+    implementation 'top.ceroxe.api:neolinkapi:7.1.2'
 }
 ```
 
@@ -324,6 +324,7 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - `getHookSocket()`：读取当前控制链路 `SecureSocket`；控制链路未建立或已经释放时为 `null`。
 - `getUpdateURL()`：读取版本不兼容流程中 NPS 返回的更新 URL；未触发 `UnsupportedVersionException`、服务端未返回 URL 或返回 `false` 时为 `null`。
 - `getState()`：读取最近一次生命周期状态。
+- `updateRuntimeProtocolFlags(boolean tcpEnabled, boolean udpEnabled)`：运行期向 NeoProxyServer 发送原生控制标记 `""`、`T`、`U` 或 `TU`，请求切换服务端后续 TCP/UDP 派发能力。
 - `version()`：静态方法，返回当前 API 版本。
 
 `start()` 是阻塞式运行入口。握手成功后，调用它的线程会持续等待隧道运行结束；要主动停止隧道，应从另一个线程、UI 事件、服务生命周期回调或 shutdown hook 调用 `close()`。`close()` 会释放控制连接、心跳线程和转发 worker，并使正在阻塞的 `start()` 正常返回。`start()` 已经执行且隧道仍活动时，再次调用会直接返回。`close()` 完成后，同一个 `NeoLinkAPI` 实例可以再次调用 `start()`；新的启动会重新复制当前 `NeoLinkCfg` 配置。
@@ -347,23 +348,34 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 `NeoLinkAPI.start()` 声明以下受检异常：
 
 - `UnsupportedVersionException`：服务端拒绝当前 API 版本。
-- `NoSuchKeyException`：密钥错误、过期、占用或被服务端拒绝。
+- `NoSuchKeyException`：密钥类失败的基类；当前实现会进一步细分为 `UnRecognizedKeyException` 与 `OutDatedKeyException`。
 - `NoMoreNetworkFlowException`：服务端通知剩余流量耗尽。
 - `IOException`：网络连接失败、连接被关闭或其他 I/O 失败。
 
-三个业务异常都提供：
+已对齐的细分异常还包括：
+
+- `UnRecognizedKeyException`：服务端拒绝该密钥，语义对齐 NeoProxyServer `UnRecognizedKeyException`。
+- `OutDatedKeyException`：服务端确认密钥已过期，语义对齐 NeoProxyServer `OutDatedKeyException`。
+- `UnSupportHostVersionException`：服务端拒绝当前版本，语义对齐 NeoProxyServer `UnSupportHostVersionException`。
+- `PortOccupiedException`：服务端返回远端端口配额/节点占用文案，语义对齐 NeoProxyServer `PortOccupiedException`。
+- `NoMorePortException`：服务端返回固定端口已被占用文案，语义对齐 NeoProxyServer `NoMorePortException`。
+
+以上业务异常都提供：
 
 - `serverResponse()`：返回服务端原始响应，便于日志记录和错误展示。
 
 ## 行为说明
 
-- TCP/UDP 开关在 `NeoLinkCfg` 阶段设置，并参与握手；不要在 `start()` 后再切换协议声明。
+- TCP/UDP 开关既可以在 `NeoLinkCfg` 阶段参与握手，也可以在 `start()` 成功后通过 `updateRuntimeProtocolFlags(...)` 请求服务端切换后续派发能力。
+- 运行期协议切换不是本地单边开关。API 会先发送 NeoProxyServer 原生控制标记，再保留一个短暂过渡窗口，避免服务端异步生效期间丢掉按旧状态派发的合法连接；如果服务端返回标准端口占用文案，API 会自动回滚本地运行期状态。
 - `NeoLinkCfg` 在 `start()` 时会被复制，运行中的隧道不会被后续配置修改影响。
 - `clientVersion` 默认等于 API 包版本；只有需要模拟旧客户端、对接桌面自动更新或做兼容性探针时才应显式设置。
 - PPv2 默认关闭。只有 Nginx、HAProxy 等本地下游已经配置 accept-proxy 时才应开启。
 - 默认连接超时为 `5000ms`。`start(int connectToNpsTimeoutMillis)` 可单独覆盖连接 NeoProxyServer 控制端口和传输端口的超时时间；本地下游服务连接超时保持 `5000ms`。
 - Debug 日志是英文，包含握手、连接、代理、转发、关闭等细节；密钥在日志中会被遮蔽。推荐通过 `setDebugSink` 接管实例级调试输出，避免库直接污染宿主应用控制台。
 - 业务错误走 `setOnError`，生命周期走 `setOnStateChanged`，服务端普通消息走 `setOnServerMessage`，调试细节走 `setDebugSink`。不要用 debug 日志推断业务状态。
+- NeoProxyServer 运行期如果发送“自然语言终止原因 + `:>exit`”，API 会先按内部 `LanguageData` 精确识别该自然语言文本，再把终止映射回结构化异常，而不是简单当作普通断链。
+- UDP 从服务端到本地的反序列化遇到非法帧时，会记录调试信息并透明丢弃该帧，不会因为单个坏包直接杀掉整条隧道。
 
 ## 7.1.1 tunnel address
 
