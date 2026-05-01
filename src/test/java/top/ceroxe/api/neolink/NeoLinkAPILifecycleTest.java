@@ -198,6 +198,48 @@ class NeoLinkAPILifecycleTest {
     }
 
     @Test
+    @DisplayName("默认超时应为 1000ms，且只影响未重载的 start()")
+    void defaultStartUsesOneSecondConnectTimeout() throws Exception {
+        CountDownLatch timeoutObserved = new CountDownLatch(1);
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
+
+        try (SecureServerSocket server = new SecureServerSocket(0)) {
+            Thread serverThread = Thread.ofVirtual().start(() -> {
+                try (SecureSocket socket = server.accept()) {
+                    assertNotNull(socket.receiveStr(2000));
+                    socket.sendStr("Connection build up successfully");
+                    Thread.sleep(2000);
+                } catch (Throwable e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
+
+            NeoLinkCfg cfg = new NeoLinkCfg("localhost", server.getLocalPort(), server.getLocalPort(), "key", 25565)
+                    .setTCPEnabled(false)
+                    .setUDPEnabled(false)
+                    .setDebugMsg(true);
+            NeoLinkAPI neoLink = new NeoLinkAPI(cfg)
+                    .setDebugSink((message, cause) -> {
+                        if (message != null && message.contains("connectToLocalTimeoutMs=1000")
+                                && message.contains("connectToNpsTimeoutMs=1000")) {
+                            timeoutObserved.countDown();
+                        }
+                    });
+
+            CompletableFuture<Void> startFuture = startAsync(neoLink);
+            awaitRunning(neoLink);
+            assertTrue(timeoutObserved.await(3, TimeUnit.SECONDS));
+
+            neoLink.close();
+            assertStartCompleted(startFuture);
+            serverThread.join(3000);
+            if (serverError.get() != null) {
+                fail("Lifecycle test server failed", serverError.get());
+            }
+        }
+    }
+
+    @Test
     @DisplayName("非法代理配置不应污染生命周期状态")
     void invalidProxyConfigurationDoesNotLeaveStartingState() {
         NeoLinkCfg cfg = new NeoLinkCfg("localhost", 1, 1, "key", 25565)

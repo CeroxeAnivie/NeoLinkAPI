@@ -14,7 +14,7 @@ Maven：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi</artifactId>
-    <version>7.1.2</version>
+    <version>7.1.3</version>
 </dependency>
 ```
 
@@ -22,7 +22,7 @@ Gradle Kotlin DSL：
 
 ```kotlin
 dependencies {
-    implementation("top.ceroxe.api:neolinkapi:7.1.2")
+    implementation("top.ceroxe.api:neolinkapi:7.1.3")
 }
 ```
 
@@ -30,7 +30,7 @@ Gradle Groovy DSL：
 
 ```groovy
 dependencies {
-    implementation 'top.ceroxe.api:neolinkapi:7.1.2'
+    implementation 'top.ceroxe.api:neolinkapi:7.1.3'
 }
 ```
 
@@ -371,7 +371,7 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - `NeoLinkCfg` 在 `start()` 时会被复制，运行中的隧道不会被后续配置修改影响。
 - `clientVersion` 默认等于 API 包版本；只有需要模拟旧客户端、对接桌面自动更新或做兼容性探针时才应显式设置。
 - PPv2 默认关闭。只有 Nginx、HAProxy 等本地下游已经配置 accept-proxy 时才应开启。
-- 默认连接超时为 `5000ms`。`start(int connectToNpsTimeoutMillis)` 可单独覆盖连接 NeoProxyServer 控制端口和传输端口的超时时间；本地下游服务连接超时保持 `5000ms`。
+- 默认连接超时为 `1000ms`。`start(int connectToNpsTimeoutMillis)` 可单独覆盖连接 NeoProxyServer 控制端口和传输端口的超时时间；本地下游服务连接超时保持 `1000ms`。
 - Debug 日志是英文，包含握手、连接、代理、转发、关闭等细节；密钥在日志中会被遮蔽。推荐通过 `setDebugSink` 接管实例级调试输出，避免库直接污染宿主应用控制台。
 - 业务错误走 `setOnError`，生命周期走 `setOnStateChanged`，服务端普通消息走 `setOnServerMessage`，调试细节走 `setDebugSink`。不要用 debug 日志推断业务状态。
 - NeoProxyServer 运行期如果发送“自然语言终止原因 + `:>exit`”，API 会先按内部 `LanguageData` 精确识别该自然语言文本，再把终止映射回结构化异常，而不是简单当作普通断链。

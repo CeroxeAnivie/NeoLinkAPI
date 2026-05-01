@@ -51,7 +51,7 @@ public final class NeoLinkAPI implements AutoCloseable {
     private static final String WINDOWS_UPDATE_CLIENT_TYPE = "exe";
     private static final String DEFAULT_UPDATE_CLIENT_TYPE = "jar";
     private static final String NO_UPDATE_URL_RESPONSE = "false";
-    private static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 5_000;
+    private static final int DEFAULT_CONNECT_TIMEOUT_MILLIS = 1_000;
     private static final int UPDATE_URL_TIMEOUT_MILLIS = 15_000;
     private static final Runnable NOOP = () -> {
     };
