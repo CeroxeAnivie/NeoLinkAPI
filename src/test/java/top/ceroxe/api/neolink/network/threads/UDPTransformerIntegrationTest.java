@@ -124,9 +124,7 @@ class UDPTransformerIntegrationTest {
         buffer.order(ByteOrder.BIG_ENDIAN);
         buffer.putInt(0xBADBADBA);
         
-        assertThrows(IllegalArgumentException.class, () -> {
-            UDPTransformer.deserializeToDatagramPacket(buffer.array());
-        });
+        assertNull(UDPTransformer.deserializeToDatagramPacket(buffer.array()));
     }
 
     @Test

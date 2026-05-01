@@ -197,9 +197,7 @@ class UDPTransformerTest {
             invalidData[i] = (byte) i;
         }
 
-        assertThrows(IllegalArgumentException.class, () -> {
-            UDPTransformer.deserializeToDatagramPacket(invalidData);
-        });
+        assertNull(UDPTransformer.deserializeToDatagramPacket(invalidData));
     }
 
     @Test

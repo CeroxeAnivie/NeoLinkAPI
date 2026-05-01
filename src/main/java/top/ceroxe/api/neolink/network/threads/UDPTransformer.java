@@ -142,7 +142,7 @@ public class UDPTransformer implements Runnable {
      */
     public static DatagramPacket deserializeToDatagramPacket(byte[] serializedData) {
         if (serializedData == null || serializedData.length < SERIALIZED_HEADER_FIXED_LENGTH + IPV4_LENGTH) {
-            throw new IllegalArgumentException("Serialized UDP packet is too short");
+            return invalidSerializedPacket("Serialized UDP packet is too short");
         }
 
         ByteBuffer buffer = ByteBuffer.wrap(serializedData);
@@ -150,21 +150,21 @@ public class UDPTransformer implements Runnable {
 
         int magic = buffer.getInt();
         if (magic != MAGIC) {
-            throw new IllegalArgumentException("Invalid magic number in serialized data");
+            return invalidSerializedPacket("Invalid magic number in serialized data");
         }
 
         int dataLen = buffer.getInt();
         int ipLen = buffer.getInt();
         if (dataLen < 0 || dataLen > BUFFER_LENGTH) {
-            throw new IllegalArgumentException("Invalid UDP data length: " + dataLen);
+            return invalidSerializedPacket("Invalid UDP data length: " + dataLen);
         }
         if (ipLen != IPV4_LENGTH && ipLen != IPV6_LENGTH) {
-            throw new IllegalArgumentException("Invalid IP address length: " + ipLen);
+            return invalidSerializedPacket("Invalid IP address length: " + ipLen);
         }
 
         int expectedLength = SERIALIZED_HEADER_FIXED_LENGTH + ipLen + dataLen;
         if (serializedData.length != expectedLength) {
-            throw new IllegalArgumentException("Serialized UDP packet length mismatch");
+            return invalidSerializedPacket("Serialized UDP packet length mismatch");
         }
 
         byte[] ipBytes = new byte[ipLen];
@@ -181,6 +181,11 @@ public class UDPTransformer implements Runnable {
         buffer.get(data);
 
         return new DatagramPacket(data, data.length, address, port);
+    }
+
+    private static DatagramPacket invalidSerializedPacket(String message) {
+        Debugger.debugOperation(new IllegalArgumentException(message));
+        return null;
     }
 
     private void transferDataToNeoServer() {

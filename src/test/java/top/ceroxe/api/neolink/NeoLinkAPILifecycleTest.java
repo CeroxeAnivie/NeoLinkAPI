@@ -5,6 +5,11 @@ import top.ceroxe.api.net.SecureServerSocket;
 import top.ceroxe.api.net.SecureSocket;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.ceroxe.api.neolink.exception.NoMoreNetworkFlowException;
+import top.ceroxe.api.neolink.exception.NoMorePortException;
+import top.ceroxe.api.neolink.exception.OutDatedKeyException;
+import top.ceroxe.api.neolink.exception.PortOccupiedException;
+import top.ceroxe.api.neolink.exception.UnRecognizedKeyException;
 import top.ceroxe.api.neolink.exception.UnsupportedVersionException;
 
 import java.io.IOException;
@@ -34,7 +39,7 @@ class NeoLinkAPILifecycleTest {
                     try (SecureSocket socket = server.accept()) {
                         String handshake = socket.receiveStr(2000);
                         assertNotNull(handshake);
-                        socket.sendStr("Connection built successfully");
+                        socket.sendStr("Connection build up successfully");
                         handshakes.countDown();
                         Thread.sleep(1000);
                     } catch (Throwable e) {
@@ -99,7 +104,7 @@ class NeoLinkAPILifecycleTest {
             Thread serverThread = Thread.ofVirtual().start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     assertNotNull(socket.receiveStr(2000));
-                    socket.sendStr("Connection built successfully");
+                    socket.sendStr("Connection build up successfully");
                     socket.sendStr(":>45678");
                     socket.sendStr("Use the address: tunnel.example.test:45678 to start up connections.");
                     socket.sendStr("traffic warning from server");
@@ -160,7 +165,7 @@ class NeoLinkAPILifecycleTest {
             Thread serverThread = Thread.ofVirtual().start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     assertNotNull(socket.receiveStr(2000));
-                    socket.sendStr("Connection built successfully");
+                    socket.sendStr("Connection build up successfully");
                     Thread.sleep(2000);
                 } catch (Throwable e) {
                     serverError.compareAndSet(null, e);
@@ -222,7 +227,7 @@ class NeoLinkAPILifecycleTest {
             Thread hookThread = Thread.ofVirtual().start(() -> {
                 try (SecureSocket socket = hookServer.accept()) {
                     assertNotNull(socket.receiveStr(2000));
-                    socket.sendStr("Connection built successfully");
+                    socket.sendStr("Connection build up successfully");
                     socket.sendStr(":>sendSocketTCP;socket-tcp;203.0.113.9:4567");
                     Thread.sleep(3000);
                 } catch (Throwable e) {
@@ -296,7 +301,7 @@ class NeoLinkAPILifecycleTest {
             Thread hookThread = Thread.ofVirtual().start(() -> {
                 try (SecureSocket socket = hookServer.accept()) {
                     assertNotNull(socket.receiveStr(2000));
-                    socket.sendStr("Connection built successfully");
+                    socket.sendStr("Connection build up successfully");
                     socket.sendStr(":>sendSocketUDP;socket-udp;203.0.113.10:4568");
                     Thread.sleep(3000);
                 } catch (Throwable e) {
@@ -355,7 +360,7 @@ class NeoLinkAPILifecycleTest {
             Thread serverThread = Thread.ofVirtual().start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     assertNotNull(socket.receiveStr(2000));
-                    socket.sendStr("Connection built successfully");
+                    socket.sendStr("Connection build up successfully");
                 } catch (Throwable e) {
                     serverError.compareAndSet(null, e);
                 }
@@ -395,6 +400,160 @@ class NeoLinkAPILifecycleTest {
     }
 
     @Test
+    @DisplayName("运行期 TCP/UDP 切换应发送服务端原生控制标记")
+    void runtimeProtocolSwitchSendsNativeControlFlags() throws Exception {
+        CountDownLatch commandReceived = new CountDownLatch(1);
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
+        AtomicReference<String> command = new AtomicReference<>();
+
+        try (SecureServerSocket server = new SecureServerSocket(0)) {
+            Thread serverThread = Thread.ofVirtual().start(() -> {
+                try (SecureSocket socket = server.accept()) {
+                    assertNotNull(socket.receiveStr(2000));
+                    socket.sendStr("Connection build up successfully");
+                    command.set(socket.receiveStr(3000));
+                    commandReceived.countDown();
+                    Thread.sleep(500);
+                } catch (Throwable e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
+
+            NeoLinkCfg cfg = new NeoLinkCfg("localhost", server.getLocalPort(), server.getLocalPort(), "key", 25565)
+                    .setUDPEnabled(false);
+            NeoLinkAPI neoLink = new NeoLinkAPI(cfg);
+
+            CompletableFuture<Void> startFuture = startAsync(neoLink);
+            awaitRunning(neoLink);
+            neoLink.updateRuntimeProtocolFlags(false, true);
+
+            assertTrue(commandReceived.await(5, TimeUnit.SECONDS));
+            assertEquals("U", command.get());
+
+            neoLink.close();
+            assertStartCompleted(startFuture);
+            serverThread.join(3000);
+            if (serverError.get() != null) {
+                fail("Runtime protocol-switch test server failed", serverError.get());
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("运行期协议切换过渡窗口不应丢掉服务端按旧状态派发的 TCP 连接")
+    void runtimeProtocolSwitchGraceWindowKeepsOldTcpDispatchAlive() throws Exception {
+        CountDownLatch controlCommandReceived = new CountDownLatch(1);
+        CountDownLatch transferHandshakeReceived = new CountDownLatch(1);
+        CountDownLatch localAccepted = new CountDownLatch(1);
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
+        AtomicReference<String> controlCommand = new AtomicReference<>();
+        AtomicReference<String> transferHandshake = new AtomicReference<>();
+
+        try (SecureServerSocket hookServer = new SecureServerSocket(0);
+             SecureServerSocket transferServer = new SecureServerSocket(0);
+             ServerSocket localServer = new ServerSocket(0)) {
+            Thread hookThread = Thread.ofVirtual().start(() -> {
+                try (SecureSocket socket = hookServer.accept()) {
+                    assertNotNull(socket.receiveStr(2000));
+                    socket.sendStr("Connection build up successfully");
+                    controlCommand.set(socket.receiveStr(3000));
+                    controlCommandReceived.countDown();
+                    socket.sendStr(":>sendSocketTCP;socket-after-switch;203.0.113.20:4567");
+                    Thread.sleep(1000);
+                } catch (Throwable e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
+            Thread transferThread = Thread.ofVirtual().start(() -> {
+                try (SecureSocket socket = transferServer.accept()) {
+                    transferHandshake.set(socket.receiveStr(3000));
+                    transferHandshakeReceived.countDown();
+                } catch (Throwable e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
+            Thread localThread = Thread.ofVirtual().start(() -> {
+                try (Socket socket = localServer.accept()) {
+                    localAccepted.countDown();
+                } catch (Throwable e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
+
+            NeoLinkCfg cfg = new NeoLinkCfg(
+                    "localhost",
+                    hookServer.getLocalPort(),
+                    transferServer.getLocalPort(),
+                    "key",
+                    localServer.getLocalPort()
+            ).setUDPEnabled(false);
+            NeoLinkAPI neoLink = new NeoLinkAPI(cfg);
+
+            CompletableFuture<Void> startFuture = startAsync(neoLink);
+            awaitRunning(neoLink);
+            neoLink.updateRuntimeProtocolFlags(false, true);
+
+            assertTrue(controlCommandReceived.await(5, TimeUnit.SECONDS));
+            assertEquals("U", controlCommand.get());
+            assertTrue(transferHandshakeReceived.await(5, TimeUnit.SECONDS));
+            assertTrue(localAccepted.await(5, TimeUnit.SECONDS));
+            assertEquals("TCP;socket-after-switch", transferHandshake.get());
+
+            neoLink.close();
+            assertStartCompleted(startFuture);
+            hookThread.join(3000);
+            transferThread.join(3000);
+            localThread.join(3000);
+            if (serverError.get() != null) {
+                fail("Runtime protocol-switch grace-window test server failed", serverError.get());
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("服务端运行期下发过期密钥文案加 exit 应映射为过期密钥异常")
+    void runtimeOutdatedKeyExitMapsToOutDatedKeyException() throws Exception {
+        CountDownLatch errorReceived = new CountDownLatch(1);
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
+        AtomicReference<Throwable> runtimeFailure = new AtomicReference<>();
+
+        try (SecureServerSocket server = new SecureServerSocket(0)) {
+            Thread serverThread = Thread.ofVirtual().start(() -> {
+                try (SecureSocket socket = server.accept()) {
+                    assertNotNull(socket.receiveStr(2000));
+                    socket.sendStr("Connection build up successfully");
+                    socket.sendStr("Key key are out of date.");
+                    socket.sendStr(":>exit");
+                } catch (Throwable e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
+
+            NeoLinkCfg cfg = new NeoLinkCfg("localhost", server.getLocalPort(), server.getLocalPort(), "key", 25565)
+                    .setTCPEnabled(false)
+                    .setUDPEnabled(false);
+            NeoLinkAPI neoLink = new NeoLinkAPI(cfg)
+                    .setOnError((message, cause) -> {
+                        runtimeFailure.set(cause);
+                        errorReceived.countDown();
+                    });
+
+            CompletableFuture<Void> startFuture = startAsync(neoLink);
+
+            assertTrue(errorReceived.await(5, TimeUnit.SECONDS));
+            ExecutionException startFailure =
+                    assertThrows(ExecutionException.class, () -> startFuture.get(5, TimeUnit.SECONDS));
+            assertInstanceOf(OutDatedKeyException.class, startFailure.getCause());
+            assertInstanceOf(OutDatedKeyException.class, runtimeFailure.get());
+
+            serverThread.join(3000);
+            if (serverError.get() != null) {
+                fail("Runtime outdated-key exit test server failed", serverError.get());
+            }
+        }
+    }
+
+    @Test
     @DisplayName("不支持版本时调用方可决定是否声明自行更新")
     void unsupportedVersionDecisionControlsHandshakeReply() throws Exception {
         CountDownLatch replyReceived = new CountDownLatch(1);
@@ -408,7 +567,7 @@ class NeoLinkAPILifecycleTest {
             Thread serverThread = Thread.ofVirtual().start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     handshake.set(socket.receiveStr(2000));
-                    String response = "Unsupported version:6.0.1|6.0.2";
+                    String response = "Unsupported version ! It should be :6.0.1|6.0.2";
                     socket.sendStr(response);
                     updateReply.set(socket.receiveStr(2000));
                     updateType.set(socket.receiveStr(2000));
@@ -434,7 +593,7 @@ class NeoLinkAPILifecycleTest {
 
             assertTrue(replyReceived.await(3, TimeUnit.SECONDS));
             assertEquals("en;0.0.1-test;key;", handshake.get());
-            assertEquals("Unsupported version:6.0.1|6.0.2", decisionInput.get());
+            assertEquals("Unsupported version ! It should be :6.0.1|6.0.2", decisionInput.get());
             assertEquals("true", updateReply.get());
             assertEquals(expectedUpdateType(), updateType.get());
             assertEquals("https://download.example.test/neolink", neoLink.getUpdateURL());
@@ -456,7 +615,7 @@ class NeoLinkAPILifecycleTest {
             Thread serverThread = Thread.ofVirtual().start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     assertNotNull(socket.receiveStr(2000));
-                    socket.sendStr("Connection built successfully");
+                    socket.sendStr("Connection build up successfully");
                     Thread.sleep(3000);
                 } catch (Throwable e) {
                     serverError.compareAndSet(null, e);
@@ -493,8 +652,84 @@ class NeoLinkAPILifecycleTest {
         }
     }
 
+    @Test
+    @DisplayName("服务端未识别密钥文案应映射为同名结构化异常")
+    void currentServerAccessDeniedResponseMapsToUnRecognizedKeyException() throws Exception {
+        assertStartupResponseThrows(
+                "Access denied , force exiting...",
+                UnRecognizedKeyException.class
+        );
+    }
+
+    @Test
+    @DisplayName("服务端过期密钥文案应映射为同名结构化异常")
+    void currentServerOutdatedKeyResponseMapsToOutDatedKeyException() throws Exception {
+        assertStartupResponseThrows(
+                "Key key are out of date.",
+                OutDatedKeyException.class
+        );
+    }
+
+    @Test
+    @DisplayName("服务端流量耗尽文案应映射为流量耗尽异常")
+    void currentServerNoFlowResponseMapsToNoMoreNetworkFlowException() throws Exception {
+        assertStartupResponseThrows(
+                "This key have no network flow left ! Force exiting...",
+                NoMoreNetworkFlowException.class
+        );
+    }
+
+    @Test
+    @DisplayName("服务端远端端口占用文案应映射为同名结构化异常")
+    void currentServerRemotePortOccupiedResponseMapsToPortOccupiedException() throws Exception {
+        assertStartupResponseThrows(
+                "Connection rejected: Port occupied by another node or limit reached.",
+                PortOccupiedException.class
+        );
+    }
+
+    @Test
+    @DisplayName("服务端无可用端口文案应映射为同名结构化异常")
+    void currentServerNoMorePortResponseMapsToNoMorePortException() throws Exception {
+        assertStartupResponseThrows(
+                "This port is already in use. Please try with a different node.",
+                NoMorePortException.class
+        );
+    }
+
     private static String expectedUpdateType() {
         return OshiUtils.isWindows() ? "exe" : "jar";
+    }
+
+    private static <T extends Throwable> void assertStartupResponseThrows(
+            String serverResponse,
+            Class<T> expectedType
+    ) throws Exception {
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
+
+        try (SecureServerSocket server = new SecureServerSocket(0)) {
+            Thread serverThread = Thread.ofVirtual().start(() -> {
+                try (SecureSocket socket = server.accept()) {
+                    assertNotNull(socket.receiveStr(2000));
+                    socket.sendStr(serverResponse);
+                    Thread.sleep(100);
+                } catch (Throwable e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
+
+            NeoLinkCfg cfg = new NeoLinkCfg("localhost", server.getLocalPort(), server.getLocalPort(), "key", 25565)
+                    .setTCPEnabled(false)
+                    .setUDPEnabled(false);
+            NeoLinkAPI neoLink = new NeoLinkAPI(cfg);
+
+            assertThrows(expectedType, neoLink::start);
+
+            serverThread.join(3000);
+            if (serverError.get() != null) {
+                fail("Startup rejection test server failed", serverError.get());
+            }
+        }
     }
 
     private static CompletableFuture<Void> startAsync(NeoLinkAPI neoLink) {

@@ -3,7 +3,12 @@ package top.ceroxe.api.neolink;
 import top.ceroxe.api.OshiUtils;
 import top.ceroxe.api.net.SecureSocket;
 import top.ceroxe.api.neolink.exception.NoMoreNetworkFlowException;
+import top.ceroxe.api.neolink.exception.NoMorePortException;
 import top.ceroxe.api.neolink.exception.NoSuchKeyException;
+import top.ceroxe.api.neolink.exception.OutDatedKeyException;
+import top.ceroxe.api.neolink.exception.PortOccupiedException;
+import top.ceroxe.api.neolink.exception.UnRecognizedKeyException;
+import top.ceroxe.api.neolink.exception.UnSupportHostVersionException;
 import top.ceroxe.api.neolink.exception.UnsupportedVersionException;
 import top.ceroxe.api.neolink.network.InternetOperator;
 import top.ceroxe.api.neolink.network.ProxyOperator;
@@ -63,6 +68,7 @@ public final class NeoLinkAPI implements AutoCloseable {
     private static final String EN_TUN_ADDR_SUFFIX = " to start up connections.";
     private static final String ZH_TUN_ADDR_PREFIX = "使用链接地址： ";
     private static final String ZH_TUN_ADDR_SUFFIX = " 来从公网连接。";
+    private static final long PROTOCOL_SWITCH_GRACE_MILLIS = 3_000L;
 
     private final NeoLinkCfg cfg;
     private final Object lifecycleLock = new Object();
@@ -85,6 +91,9 @@ public final class NeoLinkAPI implements AutoCloseable {
     private volatile long lastReceivedTime = System.currentTimeMillis();
     private volatile int runtimeConnectToNpsTimeoutMillis = DEFAULT_CONNECT_TIMEOUT_MILLIS;
     private volatile NeoLinkState state = NeoLinkState.STOPPED;
+    private volatile ProtocolFlags pendingProtocolSwitchRollback;
+    private volatile ProtocolSwitch pendingProtocolSwitch;
+    private volatile String lastServerTerminalMessage;
 
     private volatile ConnectionEventHandler onConnect = NOOP_CONNECTION_EVENT_HANDLER;
     private volatile ConnectionEventHandler onDisconnect = NOOP_CONNECTION_EVENT_HANDLER;
@@ -163,6 +172,9 @@ public final class NeoLinkAPI implements AutoCloseable {
                     runtimeCfg.getProxyIPToLocalServer()
             );
             updateUrl = null;
+            lastServerTerminalMessage = null;
+            pendingProtocolSwitch = null;
+            pendingProtocolSwitchRollback = null;
             runtimeConnectToNpsTimeoutMillis = validatedConnectToNpsTimeoutMillis;
             notifyStarting = moveStateTo(NeoLinkState.STARTING);
             debug("Starting NeoLinkAPI tunnel. " + describeRuntimeConfig());
@@ -385,6 +397,43 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     /**
+     * 运行期切换 TCP/UDP 转发能力 (runtime protocol switch)。
+     *
+     * <p>这里直接发送 NeoProxyServer 原生控制载荷 (control payload)：{@code ""}、
+     * {@code T}、{@code U} 或 {@code TU}。命令成功写入控制连接后，本地运行期闸门立即
+     * 跟随更新；如果服务端随后用标准端口冲突文案拒绝，监听线程会把本地闸门回滚到发送前状态。</p>
+     *
+     * @param tcpEnabled 是否允许服务端继续派发 TCP 转发
+     * @param udpEnabled 是否允许服务端继续派发 UDP 转发
+     * @throws IOException 控制连接未运行、已关闭或发送控制载荷失败时抛出
+     */
+    public void updateRuntimeProtocolFlags(boolean tcpEnabled, boolean udpEnabled) throws IOException {
+        ProtocolFlags requestedFlags = new ProtocolFlags(tcpEnabled, udpEnabled);
+        SecureSocket activeHookSocket;
+        synchronized (lifecycleLock) {
+            activeHookSocket = requireActiveHookSocket();
+            NeoLinkCfg activeCfg = requireRuntimeCfg();
+            ProtocolFlags currentFlags = ProtocolFlags.from(activeCfg);
+            if (currentFlags.equals(requestedFlags)) {
+                debug("Ignored runtime protocol-switch request because the requested flags already match.");
+                return;
+            }
+            pendingProtocolSwitchRollback = currentFlags;
+            pendingProtocolSwitch = new ProtocolSwitch(
+                    currentFlags,
+                    requestedFlags,
+                    System.currentTimeMillis() + PROTOCOL_SWITCH_GRACE_MILLIS
+            );
+            synchronized (activeHookSocket) {
+                activeHookSocket.sendStr(requestedFlags.asProtocolFlags());
+            }
+            activeCfg.setTCPEnabled(tcpEnabled);
+            activeCfg.setUDPEnabled(udpEnabled);
+        }
+        debug("Runtime protocol-switch command sent. flags=" + requestedFlags.asProtocolFlags());
+    }
+
+    /**
      * 返回当前 API 包版本。
      *
      * @return 从 {@code api.properties} 解析出的版本号
@@ -506,21 +555,22 @@ public final class NeoLinkAPI implements AutoCloseable {
         }
         debug("Received server handshake response. value=" + serverResponse);
 
-        if (isUnsupportedVersionResponse(serverResponse)) {
+        Exception startupFailure = classifyStartupHandshakeFailure(serverResponse);
+        if (startupFailure instanceof UnSupportHostVersionException unsupportedVersionException) {
             handleUnsupportedVersionResponse(serverResponse);
-            throw new UnsupportedVersionException(serverResponse);
+            throw unsupportedVersionException;
         }
-
-        if (isNoMoreNetworkFlowResponse(serverResponse)) {
-            throw new NoMoreNetworkFlowException(serverResponse);
+        if (startupFailure instanceof NoMoreNetworkFlowException noMoreNetworkFlowException) {
+            throw noMoreNetworkFlowException;
         }
-
-        if (isNoSuchKeyResponse(serverResponse)) {
-            throw new NoSuchKeyException(serverResponse);
+        if (startupFailure instanceof NoSuchKeyException noSuchKeyException) {
+            throw noSuchKeyException;
         }
-
-        if (isTerminalServerResponse(serverResponse)) {
-            throw new IOException("NeoProxyServer 拒绝建立隧道：" + serverResponse);
+        if (startupFailure instanceof IOException ioException) {
+            throw ioException;
+        }
+        if (!isSuccessfulHandshakeResponse(serverResponse)) {
+            throw new IOException("NeoProxyServer rejected the tunnel startup: " + serverResponse);
         }
 
         lastReceivedTime = System.currentTimeMillis();
@@ -551,24 +601,22 @@ public final class NeoLinkAPI implements AutoCloseable {
                 .append(runtimeCfg.getClientVersion())
                 .append(';')
                 .append(runtimeCfg.getKey())
-                .append(';');
-        if (runtimeCfg.isTCPEnabled()) {
-            info.append('T');
-        }
-        if (runtimeCfg.isUDPEnabled()) {
-            info.append('U');
-        }
+                .append(';')
+                .append(ProtocolFlags.from(runtimeCfg).asProtocolFlags());
         return info.toString();
     }
 
-    private void listenForServerCommands() throws IOException, NoMoreNetworkFlowException {
+    private void listenForServerCommands() throws IOException, NoSuchKeyException, NoMoreNetworkFlowException {
         String message;
         while (running.get() && (message = hookSocket.receiveStr()) != null) {
             lastReceivedTime = System.currentTimeMillis();
+            settlePendingProtocolSwitchIfExpired();
             debug("Received server message. value=" + message);
             if (message.startsWith(":>")) {
                 handleServerCommand(message.substring(2));
             } else {
+                rollbackRuntimeProtocolSwitchIfRejected(message);
+                captureTerminalServerMessage(message);
                 captureTunAddrIfPresent(message);
                 emitServerMessage(message);
                 debug("Ignored non-command server message.");
@@ -577,11 +625,11 @@ public final class NeoLinkAPI implements AutoCloseable {
         throw new IOException("NeoProxyServer 连接已关闭。");
     }
 
-    private void handleServerCommand(String command) throws NoMoreNetworkFlowException {
+    private void handleServerCommand(String command) throws IOException, NoSuchKeyException, NoMoreNetworkFlowException {
         String[] parts = command.split(";");
         switch (parts[0]) {
             case "sendSocketTCP" -> {
-                if (runtimeCfg.isTCPEnabled() && parts.length >= 3) {
+                if (isDispatchEnabled(TransportProtocol.TCP) && parts.length >= 3) {
                     debug("Scheduling TCP tunnel. socketId=" + parts[1] + ", remoteAddress=" + parts[2]);
                     submitWorker(() -> createNewTCPConnection(parts[1], parts[2]));
                 } else {
@@ -589,12 +637,26 @@ public final class NeoLinkAPI implements AutoCloseable {
                 }
             }
             case "sendSocketUDP" -> {
-                if (runtimeCfg.isUDPEnabled() && parts.length >= 3) {
+                if (isDispatchEnabled(TransportProtocol.UDP) && parts.length >= 3) {
                     debug("Scheduling UDP tunnel. socketId=" + parts[1] + ", remoteAddress=" + parts[2]);
                     submitWorker(() -> createNewUDPConnection(parts[1], parts[2]));
                 } else {
                     debug("Ignored UDP tunnel command because UDP is disabled or command is malformed.");
                 }
+            }
+            case "exit" -> {
+                Exception terminalException = classifyRuntimeTerminalFailure(lastServerTerminalMessage);
+                closeActiveConnection();
+                if (terminalException instanceof NoMoreNetworkFlowException noMoreNetworkFlowException) {
+                    throw noMoreNetworkFlowException;
+                }
+                if (terminalException instanceof NoSuchKeyException noSuchKeyException) {
+                    throw noSuchKeyException;
+                }
+                if (terminalException instanceof IOException ioException) {
+                    throw ioException;
+                }
+                throw new IOException("NeoProxyServer requested tunnel shutdown.");
             }
             case "exitNoFlow" -> {
                 closeRequested.set(true);
@@ -851,6 +913,8 @@ public final class NeoLinkAPI implements AutoCloseable {
             }
             closeActiveConnection();
             shutdownWorkerExecutor();
+            pendingProtocolSwitch = null;
+            pendingProtocolSwitchRollback = null;
             completeStartup(new IOException("NeoLinkAPI 启动已取消。"));
         }
     }
@@ -981,6 +1045,8 @@ public final class NeoLinkAPI implements AutoCloseable {
             closeActiveConnection();
             running.set(false);
             shutdownWorkerExecutor();
+            pendingProtocolSwitch = null;
+            pendingProtocolSwitchRollback = null;
             notifyStopped = moveStateTo(NeoLinkState.STOPPED);
         }
         if (notifyStopped) {
@@ -1080,6 +1146,47 @@ public final class NeoLinkAPI implements AutoCloseable {
         debug("Tunnel address received from NeoProxyServer. value=" + parsedTunAddr);
     }
 
+    private void captureTerminalServerMessage(String message) {
+        if (classifyRuntimeTerminalFailure(message) != null) {
+            lastServerTerminalMessage = message;
+        }
+    }
+
+    private boolean isDispatchEnabled(TransportProtocol protocol) {
+        settlePendingProtocolSwitchIfExpired();
+        NeoLinkCfg activeCfg = runtimeCfg;
+        boolean configuredEnabled = protocol == TransportProtocol.TCP
+                ? activeCfg.isTCPEnabled()
+                : activeCfg.isUDPEnabled();
+        ProtocolSwitch activeSwitch = pendingProtocolSwitch;
+        if (activeSwitch == null) {
+            return configuredEnabled;
+        }
+        return activeSwitch.accepts(protocol);
+    }
+
+    private void settlePendingProtocolSwitchIfExpired() {
+        ProtocolSwitch activeSwitch = pendingProtocolSwitch;
+        if (activeSwitch == null || !activeSwitch.isExpired(System.currentTimeMillis())) {
+            return;
+        }
+        pendingProtocolSwitch = null;
+        pendingProtocolSwitchRollback = null;
+        debug("Runtime protocol-switch grace window elapsed. committedFlags="
+                + activeSwitch.requested().asProtocolFlags());
+    }
+
+    private static Exception classifyRuntimeTerminalFailure(String response) {
+        Exception startupFailure = classifyStartupHandshakeFailure(response);
+        if (startupFailure != null) {
+            return startupFailure;
+        }
+        if (equalsProtocolText(response, "exitNoFlow")) {
+            return new NoMoreNetworkFlowException(response);
+        }
+        return null;
+    }
+
     private boolean shouldRequestUnsupportedVersionUpdate(String serverResponse) {
         try {
             return Boolean.TRUE.equals(unsupportedVersionDecision.apply(serverResponse));
@@ -1128,31 +1235,114 @@ public final class NeoLinkAPI implements AutoCloseable {
         }
     }
 
+    private static Exception classifyStartupHandshakeFailure(String response) {
+        if (response == null || response.isBlank()) {
+            return new IOException("NeoProxyServer returned an empty startup response.");
+        }
+        if (isUnsupportedVersionResponse(response)) {
+            return new UnSupportHostVersionException(response);
+        }
+        if (isNoMoreNetworkFlowResponse(response)) {
+            return new NoMoreNetworkFlowException(response);
+        }
+        if (isOutdatedKeyResponse(response)) {
+            return new OutDatedKeyException(response);
+        }
+        if (isUnrecognizedKeyResponse(response)) {
+            return new UnRecognizedKeyException(response);
+        }
+        if (isRemotePortOccupiedResponse(response)) {
+            return new PortOccupiedException(response);
+        }
+        if (isNoMorePortResponse(response)) {
+            return new NoMorePortException(response);
+        }
+        return null;
+    }
+
+    private static boolean isSuccessfulHandshakeResponse(String response) {
+        for (LanguageData languageData : LanguageData.all()) {
+            if (equalsProtocolText(response, languageData.connectionBuildUpSuccessfully)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static boolean isUnsupportedVersionResponse(String response) {
-        return response.contains("nsupported")
-                || response.contains("不")
-                || response.contains("旧");
+        for (LanguageData languageData : LanguageData.all()) {
+            if (startsWithProtocolText(response, languageData.unsupportedVersionPrefix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isNoMoreNetworkFlowResponse(String response) {
-        return response.contains("exitNoFlow")
-                || response.contains("No extra network traffic left")
-                || response.contains("没有多余的流量")
-                || response.contains("流量耗尽");
+        if (equalsProtocolText(response, "exitNoFlow")) {
+            return true;
+        }
+        for (LanguageData languageData : LanguageData.all()) {
+            if (equalsProtocolText(response, languageData.noNetworkFlowLeft)) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    private static boolean isNoSuchKeyResponse(String response) {
-        return isTerminalServerResponse(response);
+    private static boolean isOutdatedKeyResponse(String response) {
+        for (LanguageData languageData : LanguageData.all()) {
+            if (isWrappedProtocolText(response, languageData.keyPrefix, languageData.keyOutdatedSuffix)
+                    || isWrappedProtocolText(response, languageData.keyAltPrefix, languageData.keyOutdatedSuffix)) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    private static boolean isTerminalServerResponse(String response) {
-        return response.contains("exit")
-                || response.contains("退")
-                || response.contains("错误")
-                || response.contains("denied")
-                || response.contains("already")
-                || response.contains("过期")
-                || response.contains("占");
+    private static boolean isUnrecognizedKeyResponse(String response) {
+        for (LanguageData languageData : LanguageData.all()) {
+            if (equalsProtocolText(response, languageData.accessDeniedForceExiting)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isRemotePortOccupiedResponse(String response) {
+        for (LanguageData languageData : LanguageData.all()) {
+            if (equalsProtocolText(response, languageData.remotePortOccupied)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isNoMorePortResponse(String response) {
+        for (LanguageData languageData : LanguageData.all()) {
+            if (equalsProtocolText(response, languageData.portAlreadyInUse)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean equalsProtocolText(String response, String expected) {
+        return normalizeProtocolText(response).equals(normalizeProtocolText(expected));
+    }
+
+    private static boolean startsWithProtocolText(String response, String expectedPrefix) {
+        return normalizeProtocolText(response).startsWith(normalizeProtocolText(expectedPrefix));
+    }
+
+    private static boolean isWrappedProtocolText(String response, String prefix, String suffix) {
+        String normalizedResponse = normalizeProtocolText(response);
+        return normalizedResponse.startsWith(normalizeProtocolText(prefix))
+                && normalizedResponse.endsWith(normalizeProtocolText(suffix));
+    }
+
+    private static String normalizeProtocolText(String response) {
+        return response == null ? "" : response.trim();
     }
 
     static String parseTunAddrMessage(String message) {
@@ -1241,6 +1431,39 @@ public final class NeoLinkAPI implements AutoCloseable {
         }
     }
 
+    private NeoLinkCfg requireRuntimeCfg() throws IOException {
+        NeoLinkCfg activeCfg = runtimeCfg;
+        if (activeCfg == null) {
+            throw new IOException("NeoLinkAPI runtime configuration is not available.");
+        }
+        return activeCfg;
+    }
+
+    private SecureSocket requireActiveHookSocket() throws IOException {
+        SecureSocket activeHookSocket = hookSocket;
+        if (!running.get() || activeHookSocket == null || activeHookSocket.isClosed()) {
+            throw new IOException("NeoLinkAPI control channel is not active.");
+        }
+        return activeHookSocket;
+    }
+
+    private void rollbackRuntimeProtocolSwitchIfRejected(String message) {
+        if (!isNoMorePortResponse(message)) {
+            return;
+        }
+        ProtocolFlags rollbackFlags = pendingProtocolSwitchRollback;
+        NeoLinkCfg activeCfg = runtimeCfg;
+        if (rollbackFlags == null || activeCfg == null) {
+            return;
+        }
+        activeCfg.setTCPEnabled(rollbackFlags.tcpEnabled());
+        activeCfg.setUDPEnabled(rollbackFlags.udpEnabled());
+        pendingProtocolSwitchRollback = null;
+        pendingProtocolSwitch = null;
+        debug("Runtime protocol-switch rejected by NeoProxyServer. Rolled local flags back to "
+                + rollbackFlags.asProtocolFlags());
+    }
+
     private boolean isDebugEnabled() {
         NeoLinkCfg activeCfg = runtimeCfg;
         return Debugger.isEnabled() || (activeCfg != null ? activeCfg.isDebugMsg() : cfg.isDebugMsg());
@@ -1312,4 +1535,40 @@ public final class NeoLinkAPI implements AutoCloseable {
         }
         return secret.substring(0, 2) + "****" + secret.substring(secret.length() - 2);
     }
+
+    private record ProtocolFlags(boolean tcpEnabled, boolean udpEnabled) {
+        static ProtocolFlags from(NeoLinkCfg cfg) {
+            return new ProtocolFlags(cfg.isTCPEnabled(), cfg.isUDPEnabled());
+        }
+
+        boolean enabled(TransportProtocol protocol) {
+            return protocol == TransportProtocol.TCP ? tcpEnabled : udpEnabled;
+        }
+
+        String asProtocolFlags() {
+            StringBuilder flags = new StringBuilder(2);
+            if (tcpEnabled) {
+                flags.append('T');
+            }
+            if (udpEnabled) {
+                flags.append('U');
+            }
+            return flags.toString();
+        }
+    }
+
+    private record ProtocolSwitch(
+            ProtocolFlags previous,
+            ProtocolFlags requested,
+            long expiresAtMillis
+    ) {
+        boolean accepts(TransportProtocol protocol) {
+            return previous.enabled(protocol) || requested.enabled(protocol);
+        }
+
+        boolean isExpired(long nowMillis) {
+            return nowMillis >= expiresAtMillis;
+        }
+    }
+
 }
