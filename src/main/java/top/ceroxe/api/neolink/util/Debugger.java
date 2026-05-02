@@ -21,20 +21,19 @@ public final class Debugger {
     }
 
     /**
-     * Replaces the process-wide fallback debug sink.
+     * 替换进程级的兜底 debug sink。
      *
-     * <p>Application code should prefer instance-level sinks exposed by
-     * NeoLinkAPI. This static sink remains for backward-compatible low-level
-     * helpers and tests that still use {@link Debugger} directly.</p>
+     * <p>业务代码应优先使用 NeoLinkAPI 暴露的实例级 sink。这个静态 sink 只为向后兼容的
+     * 底层工具和仍然直接使用 {@link Debugger} 的测试保留。</p>
      *
-     * @param sink receiver for debug messages and exceptions
+     * @param sink debug 消息和异常的接收器
      */
     public static void setSink(BiConsumer<String, Throwable> sink) {
         Debugger.sink = Objects.requireNonNull(sink, "sink");
     }
 
     /**
-     * Restores the default console writer used by older callers.
+     * 恢复旧调用方使用的默认控制台输出器。
      */
     public static void resetSink() {
         Debugger.sink = Debugger::writeToConsole;

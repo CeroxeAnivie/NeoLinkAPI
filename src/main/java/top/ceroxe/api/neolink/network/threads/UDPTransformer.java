@@ -4,6 +4,7 @@ import top.ceroxe.api.net.SecureSocket;
 import top.ceroxe.api.neolink.util.Debugger;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
@@ -16,7 +17,7 @@ import java.util.function.BiConsumer;
 import static top.ceroxe.api.neolink.network.InternetOperator.close;
 
 /**
- * UDP 数据转发器
+ * UDP 数据转发器。
  *
  * 核心职责：
  * 1. 在本地服务和 Neo 服务器之间双向转发 UDP 数据
@@ -24,14 +25,14 @@ import static top.ceroxe.api.neolink.network.InternetOperator.close;
  * 3. 通过复用实例缓冲区减少 GC 压力
  *
  * 设计特点：
- * - 双向转发：支持 Neo 到本地、本地到 Neo 两种模式
- * - ByteBuffer 优化：使用堆外缓冲区提高 I/O 性能
+ * - 双向转发：支持 Neo -> 本地、本地 -> Neo 两种模式
+ * - ByteBuffer 优化：使用堆上缓冲区提升 I/O 性能
  * - 缓冲区复用：每个实例使用独立缓冲区，避免频繁分配内存
  * - 优雅关闭：支持中断信号，确保资源正确释放
  *
  * 性能优化：
  * - 使用 65535 字节缓冲区，支持最大 UDP 报文
- * - ByteBuffer 直接操作字节数组，减少拷贝开销
+ * - 通过 ByteBuffer 直接操作字节数组，减少拷贝开销
  *
  * @author NeoProxy Team
  * @since 5.0.0
@@ -49,6 +50,7 @@ public class UDPTransformer implements Runnable {
     private final SecureSocket secureSocket;
     private final int mode;
     private final String localHost;
+    private final InetAddress localAddress;
     private final int localPort;
     private final boolean debugEnabled;
     private final BiConsumer<String, Throwable> debugSink;
@@ -94,6 +96,7 @@ public class UDPTransformer implements Runnable {
         this.plainSocket = localReceiver;
         this.mode = MODE_NEO_TO_LOCAL;
         this.localHost = localHost;
+        this.localAddress = resolveLocalAddress(localHost);
         this.localPort = localPort;
         this.debugEnabled = debugEnabled;
         this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
@@ -132,6 +135,7 @@ public class UDPTransformer implements Runnable {
         this.secureSocket = secureReceiver;
         this.mode = MODE_LOCAL_TO_NEO;
         this.localHost = localHost;
+        this.localAddress = resolveLocalAddress(localHost);
         this.localPort = localPort;
         this.debugEnabled = debugEnabled;
         this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
@@ -141,8 +145,16 @@ public class UDPTransformer implements Runnable {
      * 这个方法可以保持为静态，因为它不依赖实例状态。
      */
     public static DatagramPacket deserializeToDatagramPacket(byte[] serializedData) {
+        return deserializeToDatagramPacket(serializedData, true, UDPTransformer::defaultDebugSink);
+    }
+
+    static DatagramPacket deserializeToDatagramPacket(
+            byte[] serializedData,
+            boolean debugEnabled,
+            BiConsumer<String, Throwable> debugSink
+    ) {
         if (serializedData == null || serializedData.length < SERIALIZED_HEADER_FIXED_LENGTH + IPV4_LENGTH) {
-            return invalidSerializedPacket("Serialized UDP packet is too short");
+            return invalidSerializedPacket("Serialized UDP packet is too short", debugEnabled, debugSink);
         }
 
         ByteBuffer buffer = ByteBuffer.wrap(serializedData);
@@ -150,21 +162,21 @@ public class UDPTransformer implements Runnable {
 
         int magic = buffer.getInt();
         if (magic != MAGIC) {
-            return invalidSerializedPacket("Invalid magic number in serialized data");
+            return invalidSerializedPacket("Invalid magic number in serialized data", debugEnabled, debugSink);
         }
 
         int dataLen = buffer.getInt();
         int ipLen = buffer.getInt();
         if (dataLen < 0 || dataLen > BUFFER_LENGTH) {
-            return invalidSerializedPacket("Invalid UDP data length: " + dataLen);
+            return invalidSerializedPacket("Invalid UDP data length: " + dataLen, debugEnabled, debugSink);
         }
         if (ipLen != IPV4_LENGTH && ipLen != IPV6_LENGTH) {
-            return invalidSerializedPacket("Invalid IP address length: " + ipLen);
+            return invalidSerializedPacket("Invalid IP address length: " + ipLen, debugEnabled, debugSink);
         }
 
         int expectedLength = SERIALIZED_HEADER_FIXED_LENGTH + ipLen + dataLen;
         if (serializedData.length != expectedLength) {
-            return invalidSerializedPacket("Serialized UDP packet length mismatch");
+            return invalidSerializedPacket("Serialized UDP packet length mismatch", debugEnabled, debugSink);
         }
 
         byte[] ipBytes = new byte[ipLen];
@@ -173,7 +185,7 @@ public class UDPTransformer implements Runnable {
         try {
             address = InetAddress.getByAddress(ipBytes);
         } catch (Exception e) {
-            Debugger.debugOperation(e);
+            emitMalformedPacketDebug(null, e, debugEnabled, debugSink);
             return null;
         }
         int port = buffer.getShort() & 0xFFFF;
@@ -183,14 +195,18 @@ public class UDPTransformer implements Runnable {
         return new DatagramPacket(data, data.length, address, port);
     }
 
-    private static DatagramPacket invalidSerializedPacket(String message) {
-        Debugger.debugOperation(new IllegalArgumentException(message));
+    private static DatagramPacket invalidSerializedPacket(
+            String message,
+            boolean debugEnabled,
+            BiConsumer<String, Throwable> debugSink
+    ) {
+        emitMalformedPacketDebug(message, null, debugEnabled, debugSink);
         return null;
     }
 
     private void transferDataToNeoServer() {
         try {
-            while (true) {//用异常退出循环
+            while (true) { // 用异常退出循环。
                 DatagramPacket incomingPacket = new DatagramPacket(receiveBuffer, receiveBuffer.length);
                 plainSocket.receive(incomingPacket);
                 byte[] serializedData = serializeDatagramPacket(incomingPacket);
@@ -218,8 +234,8 @@ public class UDPTransformer implements Runnable {
         byte[] ipBytes = address.getAddress();
         int ipLength = ipBytes.length;
 
-        // 检查缓冲区容量是否足够，如果不够则动态分配（不推荐，但更安全）
-        // 或者直接抛出异常，让调用者知道包太大
+        // 先校验序列化缓冲区容量是否足够，避免静默截断大包。
+        // 这里选择直接抛异常，让调用方明确知道包太大。
         int totalLen = 4 + 4 + 4 + ipLength + 2 + length;
         if (totalLen > serializationBuffer.capacity()) {
             throw new IllegalArgumentException("UDP packet too large for serialization buffer: " + totalLen);
@@ -241,12 +257,12 @@ public class UDPTransformer implements Runnable {
             byte[] data;
             while ((data = secureSocket.receiveBytes()) != null) {
                 debug("Received UDP frame from NeoProxyServer. serializedBytes=" + data.length);
-                DatagramPacket datagramPacket = deserializeToDatagramPacket(data);
+                DatagramPacket datagramPacket = deserializeToDatagramPacket(data, debugEnabled, this::emitDebug);
                 if (datagramPacket != null) {
                     DatagramPacket outgoingPacket = new DatagramPacket(
                             datagramPacket.getData(),
                             datagramPacket.getLength(),
-                            InetAddress.getByName(localHost),
+                            localAddress,
                             localPort
                     );
                     plainSocket.send(outgoingPacket);
@@ -272,9 +288,8 @@ public class UDPTransformer implements Runnable {
         } catch (Exception e) {
             debug(e);
         } finally {
-            // 最终修复：无论正常结束还是异常结束，都确保关闭资源
-            close(plainSocket, secureSocket);
-            debug("UDP transformer closed sockets.");
+            // 无论正常结束还是异常结束，都确保走到统一的资源收尾路径。
+            debug("UDP transformer finished.");
         }
     }
 
@@ -296,7 +311,31 @@ public class UDPTransformer implements Runnable {
         try {
             debugSink.accept(message, cause);
         } catch (RuntimeException ignored) {
-            // Debug callbacks are observational and must not disturb forwarding.
+            // Debug 回调只用于观测，不能干扰转发流程。
+        }
+    }
+
+    private static void emitMalformedPacketDebug(
+            String message,
+            Throwable cause,
+            boolean debugEnabled,
+            BiConsumer<String, Throwable> debugSink
+    ) {
+        if (!debugEnabled) {
+            return;
+        }
+        try {
+            debugSink.accept(message, cause);
+        } catch (RuntimeException ignored) {
+            // 畸形包诊断只用于观测，不能干扰转发流程。
+        }
+    }
+
+    private static InetAddress resolveLocalAddress(String localHost) {
+        try {
+            return InetAddress.getByName(localHost);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Unable to resolve local UDP target host: " + localHost, e);
         }
     }
 

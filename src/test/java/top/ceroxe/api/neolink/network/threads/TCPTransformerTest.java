@@ -1,324 +1,138 @@
 package top.ceroxe.api.neolink.network.threads;
 
-import top.ceroxe.api.net.SecureSocket;
-import top.ceroxe.api.neolink.util.Debugger;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.ceroxe.api.net.SecureServerSocket;
+import top.ceroxe.api.net.SecureSocket;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
+import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
-/**
- * TCPTransformer 测试类
- *
- * 测试范围：
- * 1. Proxy Protocol v2 签名检测
- * 2. 构造函数初始化
- * 3. 模式常量验证
- * 4. run 方法行为
- * 5. 缓冲区初始化
- */
-@DisplayName("TCPTransformer TCP转发器测试")
+@DisplayName("TCPTransformer behavior")
 class TCPTransformerTest {
+    @Test
+    @DisplayName("run tolerates null sockets")
+    void runWithNullSocketsDoesNotThrow() {
+        TCPTransformer neoToLocal = new TCPTransformer((SecureSocket) null, (Socket) null, false);
+        TCPTransformer localToNeo = new TCPTransformer((Socket) null, (SecureSocket) null, false);
 
-    private boolean originalDebugMode;
-
-    @BeforeEach
-    void setUp() {
-        originalDebugMode = Debugger.isEnabled();
-        Debugger.setEnabled(false);
-    }
-
-    @AfterEach
-    void tearDown() {
-        Debugger.setEnabled(originalDebugMode);
+        assertDoesNotThrow(neoToLocal::run);
+        assertDoesNotThrow(localToNeo::run);
     }
 
     @Test
-    @DisplayName("MODE_NEO_TO_LOCAL 常量应为 0")
-    void testModeNeoToLocalConstant() throws Exception {
-        var field = TCPTransformer.class.getDeclaredField("MODE_NEO_TO_LOCAL");
-        field.setAccessible(true);
-        int value = field.getInt(null);
-        assertEquals(0, value);
+    @DisplayName("Proxy Protocol v2 header is stripped when disabled")
+    void stripsProxyProtocolHeaderWhenDisabled() throws Exception {
+        byte[] payload = "REAL_PAYLOAD".getBytes(StandardCharsets.UTF_8);
+        byte[] frame = concat(proxyProtocolV2Header(0), payload);
+
+        byte[] received = forwardNeoToLocal(frame, false);
+
+        assertArrayEquals(payload, received);
     }
 
     @Test
-    @DisplayName("MODE_LOCAL_TO_NEO 常量应为 1")
-    void testModeLocalToNeoConstant() throws Exception {
-        var field = TCPTransformer.class.getDeclaredField("MODE_LOCAL_TO_NEO");
-        field.setAccessible(true);
-        int value = field.getInt(null);
-        assertEquals(1, value);
+    @DisplayName("Proxy Protocol v2 header is forwarded when enabled")
+    void forwardsProxyProtocolHeaderWhenEnabled() throws Exception {
+        byte[] header = proxyProtocolV2Header(0);
+        byte[] payload = "REAL_PAYLOAD".getBytes(StandardCharsets.UTF_8);
+        byte[] frame = concat(header, payload);
+
+        byte[] received = forwardNeoToLocal(frame, true);
+
+        assertArrayEquals(frame, received);
     }
 
     @Test
-    @DisplayName("BUFFER_LENGTH 应为 65535")
-    void testBufferLengthConstant() throws Exception {
-        var field = TCPTransformer.class.getDeclaredField("BUFFER_LENGTH");
-        field.setAccessible(true);
-        assertTrue(Modifier.isPrivate(field.getModifiers()));
-        assertTrue(Modifier.isFinal(field.getModifiers()));
-        int value = field.getInt(null);
-        assertEquals(65535, value);
+    @DisplayName("Incomplete Proxy Protocol v2 header is dropped when disabled")
+    void dropsIncompleteProxyProtocolHeaderWhenDisabled() throws Exception {
+        byte[] incompleteHeader = Arrays.copyOf(proxyProtocolV2Header(12), 15);
+
+        byte[] received = forwardNeoToLocal(incompleteHeader, false);
+
+        assertEquals(0, received.length);
     }
 
-    @Test
-    @DisplayName("构造函数应正确初始化 MODE_NEO_TO_LOCAL 模式")
-    void testConstructorNeoToLocalMode() throws Exception {
-        Constructor<?> constructor = TCPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, Socket.class, boolean.class);
-        constructor.setAccessible(true);
+    private static byte[] forwardNeoToLocal(byte[] frame, boolean enableProxyProtocol) throws Exception {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<byte[]> received = new AtomicReference<>(new byte[0]);
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
 
-        TCPTransformer transformer = (TCPTransformer) constructor.newInstance(null, null, false);
+        try (SecureServerSocket secureServer = new SecureServerSocket(0);
+             ServerSocket localServer = new ServerSocket(0)) {
+            Thread secureServerThread = Thread.ofVirtual().start(() -> {
+                try (SecureSocket socket = secureServer.accept()) {
+                    socket.sendBytes(frame);
+                    socket.sendBytes(null);
+                } catch (Throwable e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
 
-        Field modeField = TCPTransformer.class.getDeclaredField("mode");
-        modeField.setAccessible(true);
-        int mode = modeField.getInt(transformer);
-        assertEquals(0, mode);
+            Thread localServerThread = Thread.ofVirtual().start(() -> {
+                try (Socket localClient = localServer.accept()) {
+                    received.set(localClient.getInputStream().readAllBytes());
+                    latch.countDown();
+                } catch (Throwable e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
+
+            try (SecureSocket secureClient = new SecureSocket("localhost", secureServer.getLocalPort());
+                 Socket localSocket = new Socket("localhost", localServer.getLocalPort())) {
+                Thread transformerThread = Thread.ofVirtual().start(
+                        new TCPTransformer(secureClient, localSocket, enableProxyProtocol)
+                );
+
+                assertTrue(latch.await(5, TimeUnit.SECONDS));
+                transformerThread.join(2000);
+            }
+
+            secureServerThread.join(2000);
+            localServerThread.join(2000);
+            failIfServerError(serverError);
+            return received.get();
+        }
     }
 
-    @Test
-    @DisplayName("构造函数应正确初始化 MODE_LOCAL_TO_NEO 模式")
-    void testConstructorLocalToNeoMode() throws Exception {
-        Constructor<?> constructor = TCPTransformer.class.getDeclaredConstructor(
-                Socket.class, SecureSocket.class, boolean.class);
-        constructor.setAccessible(true);
-
-        TCPTransformer transformer = (TCPTransformer) constructor.newInstance(null, null, false);
-
-        Field modeField = TCPTransformer.class.getDeclaredField("mode");
-        modeField.setAccessible(true);
-        int mode = modeField.getInt(transformer);
-        assertEquals(1, mode);
+    private static void failIfServerError(AtomicReference<Throwable> serverError) {
+        Throwable error = serverError.get();
+        if (error != null) {
+            fail("TCP transformer test server failed", error);
+        }
     }
 
-    @Test
-    @DisplayName("构造函数应正确初始化 enableProxyProtocol 标志")
-    void testConstructorEnableProxyProtocol() throws Exception {
-        Constructor<?> constructor = TCPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, Socket.class, boolean.class);
-        constructor.setAccessible(true);
-
-        TCPTransformer transformer = (TCPTransformer) constructor.newInstance(null, null, true);
-
-        Field ppField = TCPTransformer.class.getDeclaredField("enableProxyProtocol");
-        ppField.setAccessible(true);
-        boolean enablePP = ppField.getBoolean(transformer);
-        assertTrue(enablePP);
-    }
-
-    @Test
-    @DisplayName("构造函数应正确初始化缓冲区")
-    void testConstructorBufferInitialization() throws Exception {
-        Constructor<?> constructor = TCPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, Socket.class, boolean.class);
-        constructor.setAccessible(true);
-
-        TCPTransformer transformer = (TCPTransformer) constructor.newInstance(null, null, false);
-
-        Field bufferField = TCPTransformer.class.getDeclaredField("buffer");
-        bufferField.setAccessible(true);
-        byte[] buffer = (byte[]) bufferField.get(transformer);
-        assertNotNull(buffer);
-        assertEquals(65535, buffer.length);
-    }
-
-    @Test
-    @DisplayName("run 方法在 null socket 时应安全结束")
-    void testRunWithNullSockets() throws Exception {
-        Constructor<?> constructor = TCPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, Socket.class, boolean.class);
-        constructor.setAccessible(true);
-
-        TCPTransformer transformer = (TCPTransformer) constructor.newInstance(null, null, false);
-
-        assertDoesNotThrow(() -> transformer.run());
-    }
-
-    @Test
-    @DisplayName("run 方法在 MODE_LOCAL_TO_NEO 时应安全结束")
-    void testRunWithLocalToNeoMode() throws Exception {
-        Constructor<?> constructor = TCPTransformer.class.getDeclaredConstructor(
-                Socket.class, SecureSocket.class, boolean.class);
-        constructor.setAccessible(true);
-
-        TCPTransformer transformer = (TCPTransformer) constructor.newInstance(null, null, false);
-
-        assertDoesNotThrow(() -> transformer.run());
-    }
-
-    private Object createTransformerInstance() throws Exception {
-        Constructor<?> constructor = TCPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, Socket.class, boolean.class
-        );
-        constructor.setAccessible(true);
-        return constructor.newInstance(null, null, false);
-    }
-
-    @Test
-    @DisplayName("isProxyProtocolV2Signature 应正确识别 PPv2 签名")
-    void testIsProxyProtocolV2SignatureWithValidSignature() throws Exception {
-        byte[] validPpV2Header = new byte[]{
-                (byte) 0x0D, (byte) 0x0A, (byte) 0x0D, (byte) 0x0A,
-                (byte) 0x00, (byte) 0x0D, (byte) 0x0A, (byte) 0x51,
-                (byte) 0x55, (byte) 0x49, (byte) 0x54, (byte) 0x0A,
-                0x00, 0x00, 0x00, 0x00
-        };
-
-        Object instance = createTransformerInstance();
-        Method method = TCPTransformer.class.getDeclaredMethod("isProxyProtocolV2Signature", byte[].class);
-        method.setAccessible(true);
-
-        assertTrue((boolean) method.invoke(instance, (Object) validPpV2Header));
-    }
-
-    @Test
-    @DisplayName("isProxyProtocolV2Signature 应拒绝无效签名")
-    void testIsProxyProtocolV2SignatureWithInvalidSignature() throws Exception {
-        byte[] invalidHeader = new byte[]{
-                0x00, 0x01, 0x02, 0x03,
-                0x04, 0x05, 0x06, 0x07,
-                0x08, 0x09, 0x0A, 0x0B,
-                0x0C, 0x0D, 0x0E, 0x0F
-        };
-
-        Object instance = createTransformerInstance();
-        Method method = TCPTransformer.class.getDeclaredMethod("isProxyProtocolV2Signature", byte[].class);
-        method.setAccessible(true);
-
-        assertFalse((boolean) method.invoke(instance, (Object) invalidHeader));
-    }
-
-    @Test
-    @DisplayName("isProxyProtocolV2Signature 应处理 null 数据")
-    void testIsProxyProtocolV2SignatureWithNull() throws Exception {
-        Object instance = createTransformerInstance();
-        Method method = TCPTransformer.class.getDeclaredMethod("isProxyProtocolV2Signature", byte[].class);
-        method.setAccessible(true);
-
-        assertFalse((boolean) method.invoke(instance, (Object) null));
-    }
-
-    @Test
-    @DisplayName("isProxyProtocolV2Signature 应处理短数据")
-    void testIsProxyProtocolV2SignatureWithShortData() throws Exception {
-        byte[] shortData = new byte[]{0x0D, 0x0A, 0x0D, 0x0A};
-
-        Object instance = createTransformerInstance();
-        Method method = TCPTransformer.class.getDeclaredMethod("isProxyProtocolV2Signature", byte[].class);
-        method.setAccessible(true);
-
-        assertFalse((boolean) method.invoke(instance, (Object) shortData));
-    }
-
-    @Test
-    @DisplayName("isProxyProtocolV2Signature 应处理恰好 12 字节的有效签名")
-    void testIsProxyProtocolV2SignatureWithExact12Bytes() throws Exception {
-        byte[] exact12Bytes = new byte[]{
+    private static byte[] proxyProtocolV2Header(int payloadLength) {
+        byte[] header = new byte[16 + payloadLength];
+        byte[] signature = new byte[]{
                 (byte) 0x0D, (byte) 0x0A, (byte) 0x0D, (byte) 0x0A,
                 (byte) 0x00, (byte) 0x0D, (byte) 0x0A, (byte) 0x51,
                 (byte) 0x55, (byte) 0x49, (byte) 0x54, (byte) 0x0A
         };
-
-        Object instance = createTransformerInstance();
-        Method method = TCPTransformer.class.getDeclaredMethod("isProxyProtocolV2Signature", byte[].class);
-        method.setAccessible(true);
-
-        assertTrue((boolean) method.invoke(instance, (Object) exact12Bytes));
+        System.arraycopy(signature, 0, header, 0, signature.length);
+        header[12] = 0x20;
+        header[13] = 0x00;
+        header[14] = (byte) ((payloadLength >>> 8) & 0xFF);
+        header[15] = (byte) (payloadLength & 0xFF);
+        Arrays.fill(header, 16, header.length, (byte) 0x7F);
+        return header;
     }
 
-    @Test
-    @DisplayName("isProxyProtocolV2Signature 应拒绝部分匹配的签名")
-    void testIsProxyProtocolV2SignatureWithPartialMatch() throws Exception {
-        byte[] partialMatch = new byte[]{
-                (byte) 0x0D, (byte) 0x0A, (byte) 0x0D, (byte) 0x0A,
-                (byte) 0x00, (byte) 0x0D, (byte) 0x0A, (byte) 0x51,
-                (byte) 0x55, (byte) 0x48, (byte) 0x54, (byte) 0x0A
-        };
-
-        Object instance = createTransformerInstance();
-        Method method = TCPTransformer.class.getDeclaredMethod("isProxyProtocolV2Signature", byte[].class);
-        method.setAccessible(true);
-
-        assertFalse((boolean) method.invoke(instance, (Object) partialMatch));
-    }
-
-    @Test
-    @DisplayName("isProxyProtocolV2Signature 应拒绝空数组")
-    void testIsProxyProtocolV2SignatureWithEmptyArray() throws Exception {
-        byte[] emptyArray = new byte[0];
-
-        Object instance = createTransformerInstance();
-        Method method = TCPTransformer.class.getDeclaredMethod("isProxyProtocolV2Signature", byte[].class);
-        method.setAccessible(true);
-
-        assertFalse((boolean) method.invoke(instance, (Object) emptyArray));
-    }
-
-    @Test
-    @DisplayName("PPV2_SIG 签名应为正确的 Proxy Protocol v2 签名")
-    void testPpv2SigCorrectValue() throws Exception {
-        var field = TCPTransformer.class.getDeclaredField("PPV2_SIG");
-        field.setAccessible(true);
-        byte[] sig = (byte[]) field.get(null);
-
-        assertEquals(12, sig.length);
-        assertEquals((byte) 0x0D, sig[0]);
-        assertEquals((byte) 0x0A, sig[1]);
-        assertEquals((byte) 0x0D, sig[2]);
-        assertEquals((byte) 0x0A, sig[3]);
-        assertEquals((byte) 0x00, sig[4]);
-        assertEquals((byte) 0x0D, sig[5]);
-        assertEquals((byte) 0x0A, sig[6]);
-        assertEquals((byte) 0x51, sig[7]);
-        assertEquals((byte) 0x55, sig[8]);
-        assertEquals((byte) 0x49, sig[9]);
-        assertEquals((byte) 0x54, sig[10]);
-        assertEquals((byte) 0x0A, sig[11]);
-    }
-
-    @Test
-    @DisplayName("run 方法应实现 Runnable 接口")
-    void testImplementsRunnable() {
-        assertTrue(Runnable.class.isAssignableFrom(TCPTransformer.class));
-    }
-
-    @Test
-    @DisplayName("plainSocket 字段应正确初始化")
-    void testPlainSocketField() throws Exception {
-        Constructor<?> constructor = TCPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, Socket.class, boolean.class);
-        constructor.setAccessible(true);
-
-        TCPTransformer transformer = (TCPTransformer) constructor.newInstance(null, null, false);
-
-        Field plainSocketField = TCPTransformer.class.getDeclaredField("plainSocket");
-        plainSocketField.setAccessible(true);
-        Socket socket = (Socket) plainSocketField.get(transformer);
-        assertNull(socket);
-    }
-
-    @Test
-    @DisplayName("secureSocket 字段应正确初始化")
-    void testSecureSocketField() throws Exception {
-        Constructor<?> constructor = TCPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, Socket.class, boolean.class);
-        constructor.setAccessible(true);
-
-        TCPTransformer transformer = (TCPTransformer) constructor.newInstance(null, null, false);
-
-        Field secureSocketField = TCPTransformer.class.getDeclaredField("secureSocket");
-        secureSocketField.setAccessible(true);
-        SecureSocket socket = (SecureSocket) secureSocketField.get(transformer);
-        assertNull(socket);
+    private static byte[] concat(byte[] first, byte[] second) throws IOException {
+        byte[] merged = Arrays.copyOf(first, first.length + second.length);
+        System.arraycopy(second, 0, merged, first.length, second.length);
+        return merged;
     }
 }

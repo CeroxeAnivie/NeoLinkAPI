@@ -27,7 +27,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -72,7 +71,6 @@ public final class NeoLinkAPI implements AutoCloseable {
 
     private final NeoLinkCfg cfg;
     private final Object lifecycleLock = new Object();
-    private final CountDownLatch tunAddrReady = new CountDownLatch(1);
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean closeRequested = new AtomicBoolean(false);
     private final AtomicLong lifecycleGeneration = new AtomicLong(0);
@@ -88,6 +86,7 @@ public final class NeoLinkAPI implements AutoCloseable {
     private volatile Future<?> supervisorFuture;
     private volatile String updateUrl;
     private volatile String tunAddr;
+    private volatile CompletableFuture<String> tunAddrFuture = new CompletableFuture<>();
     private volatile long lastReceivedTime = System.currentTimeMillis();
     private volatile int runtimeConnectToNpsTimeoutMillis = DEFAULT_CONNECT_TIMEOUT_MILLIS;
     private volatile NeoLinkState state = NeoLinkState.STOPPED;
@@ -163,6 +162,7 @@ public final class NeoLinkAPI implements AutoCloseable {
             }
 
             long generation = lifecycleGeneration.incrementAndGet();
+            resetTunAddrState();
             runtimeCfg = cfg.copy();
             runtimeCfg.requireStartReady();
             ProxyOperator startupProxyOperator = new ProxyOperator(
@@ -241,14 +241,24 @@ public final class NeoLinkAPI implements AutoCloseable {
 
         boolean interrupted = false;
         while (true) {
+            CompletableFuture<String> future = tunAddrFuture;
             try {
-                tunAddrReady.await();
+                String resolvedTunAddr = future.get();
                 if (interrupted) {
                     Thread.currentThread().interrupt();
                 }
-                return tunAddr;
+                return resolvedTunAddr;
             } catch (InterruptedException e) {
                 interrupted = true;
+            } catch (CancellationException e) {
+                if (future != tunAddrFuture) {
+                    continue;
+                }
+            } catch (ExecutionException e) {
+                if (future != tunAddrFuture) {
+                    continue;
+                }
+                throw new IllegalStateException("Unexpected tunnel address resolution failure.", e.getCause());
             }
         }
     }
@@ -360,10 +370,10 @@ public final class NeoLinkAPI implements AutoCloseable {
         return this;
     }
     /**
-     * Sets callback executed when a forwarding connection is established.
+     * 设置转发连接建立时触发的回调。
      *
-     * @param onConnect callback receiving protocol, remote visitor address and local downstream address
-     * @return current tunnel instance for chaining
+     * @param onConnect 回调参数依次为协议、远端访问者地址和本地下游地址
+     * @return 当前隧道实例，便于链式调用
      */
     public NeoLinkAPI setOnConnect(ConnectionEventHandler onConnect) {
         this.onConnect = Objects.requireNonNull(onConnect, "onConnect");
@@ -371,10 +381,10 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     /**
-     * Sets callback executed when a forwarding connection is closed.
+     * 设置转发连接关闭时触发的回调。
      *
-     * @param onDisconnect callback receiving protocol, remote visitor address and local downstream address
-     * @return current tunnel instance for chaining
+     * @param onDisconnect 回调参数依次为协议、远端访问者地址和本地下游地址
+     * @return 当前隧道实例，便于链式调用
      */
     public NeoLinkAPI setOnDisconnect(ConnectionEventHandler onDisconnect) {
         this.onDisconnect = Objects.requireNonNull(onDisconnect, "onDisconnect");
@@ -443,7 +453,7 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     /**
-     * Transport type used by a forwarding connection.
+     * 转发连接使用的传输协议类型。
      */
     public enum TransportProtocol {
         TCP,
@@ -451,7 +461,7 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     /**
-     * Receives forwarding connection events with the protocol resolved by NeoLinkAPI.
+     * 接收转发连接事件，协议类型由 NeoLinkAPI 解析后传入。
      */
     @FunctionalInterface
     public interface ConnectionEventHandler {
@@ -762,8 +772,7 @@ public final class NeoLinkAPI implements AutoCloseable {
             Future<?> second = executor.submit(neoToLocalTask);
             SecureSocket trackedTransferSocket = neoTransferSocket;
             DatagramSocket trackedDatagramSocket = datagramSocket;
-            executor.submit(() -> awaitTransformers(
-                    TransportProtocol.UDP,
+            executor.submit(() -> awaitUdpTransformers(
                     first,
                     second,
                     remoteAddress,
@@ -873,6 +882,47 @@ public final class NeoLinkAPI implements AutoCloseable {
             InternetOperator.close(trackedConnections);
             unregisterConnection(trackedConnections);
             emitConnectionEvent(onDisconnect, protocol, remoteAddress);
+        }
+    }
+
+    private void awaitUdpTransformers(
+            Future<?> first,
+            Future<?> second,
+            String remoteAddress,
+            Closeable... trackedConnections
+    ) {
+        try {
+            waitForFirstCompletion(first, second);
+        } finally {
+            InternetOperator.close(trackedConnections);
+            unregisterConnection(trackedConnections);
+        }
+
+        try {
+            first.get();
+        } catch (Exception e) {
+            debug(e);
+        }
+        try {
+            second.get();
+        } catch (Exception e) {
+            debug(e);
+        } finally {
+            emitConnectionEvent(onDisconnect, TransportProtocol.UDP, remoteAddress);
+        }
+    }
+
+    private void waitForFirstCompletion(Future<?> first, Future<?> second) {
+        while (true) {
+            if (first.isDone() || second.isDone()) {
+                return;
+            }
+            try {
+                Thread.sleep(10);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
         }
     }
 
@@ -1047,6 +1097,7 @@ public final class NeoLinkAPI implements AutoCloseable {
             shutdownWorkerExecutor();
             pendingProtocolSwitch = null;
             pendingProtocolSwitchRollback = null;
+            resetTunAddrState();
             notifyStopped = moveStateTo(NeoLinkState.STOPPED);
         }
         if (notifyStopped) {
@@ -1142,8 +1193,17 @@ public final class NeoLinkAPI implements AutoCloseable {
             return;
         }
         tunAddr = parsedTunAddr;
-        tunAddrReady.countDown();
+        tunAddrFuture.complete(parsedTunAddr);
         debug("Tunnel address received from NeoProxyServer. value=" + parsedTunAddr);
+    }
+
+    private void resetTunAddrState() {
+        CompletableFuture<String> previousFuture = tunAddrFuture;
+        tunAddr = null;
+        tunAddrFuture = new CompletableFuture<>();
+        if (previousFuture != null && !previousFuture.isDone()) {
+            previousFuture.cancel(false);
+        }
     }
 
     private void captureTerminalServerMessage(String message) {
@@ -1487,7 +1547,7 @@ public final class NeoLinkAPI implements AutoCloseable {
         try {
             debugSink.accept(message, cause);
         } catch (RuntimeException ignored) {
-            // Debug callbacks are observational and must not affect tunnel state.
+            // Debug 回调只用于观测，不应影响隧道状态。
         }
     }
 

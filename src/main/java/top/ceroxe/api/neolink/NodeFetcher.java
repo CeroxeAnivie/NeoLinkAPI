@@ -16,12 +16,11 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Fetches public NeoLink node definitions from NKM.
+ * 从 NKM 拉取公开的 NeoLink 节点定义。
  *
- * <p>The returned {@link NeoNode} values preserve NKM display metadata such as
- * {@code name}, stable {@code realId}, optional SVG icon and connection ports.
- * Call {@link NeoNode#toCfg(String, int)} when a selected public node needs to become a
- * {@link NeoLinkCfg} tunnel configuration.</p>
+ * <p>返回的 {@link NeoNode} 会保留 NKM 的展示元数据，例如 {@code name}、稳定的
+ * {@code realId}、可选 SVG 图标以及连接端口。选中某个公共节点后，可通过
+ * {@link NeoNode#toCfg(String, int)} 将其转换为 {@link NeoLinkCfg} 隧道配置。</p>
  */
 public final class NodeFetcher {
     public static final int DEFAULT_TIMEOUT_MILLIS = 1000;
@@ -32,24 +31,24 @@ public final class NodeFetcher {
     }
 
     /**
-     * Fetches NKM nodes with the same one-second timeout used by the desktop client.
+     * 使用与桌面客户端一致的 1 秒超时拉取 NKM 节点。
      *
-     * @param url NKM node-list endpoint
-     * @return insertion-ordered map keyed by NKM {@code realId}
-     * @throws IOException when the endpoint, HTTP status or JSON payload is invalid
+     * @param url NKM 节点列表接口地址
+     * @return 以 NKM {@code realId} 为 key、保持插入顺序的 Map
+     * @throws IOException 当接口地址、HTTP 状态码或 JSON 载荷无效时抛出
      */
     public static Map<String, NeoNode> getFromNKM(String url) throws IOException {
         return getFromNKM(url, DEFAULT_TIMEOUT_MILLIS);
     }
 
     /**
-     * Fetches NKM nodes keyed by stable {@code realId}.
+     * 拉取 NKM 节点，并使用稳定的 {@code realId} 作为 key。
      *
-     * @param url NKM node-list endpoint
-     * @param timeoutMillis connect and read timeout in milliseconds
-     * @return insertion-ordered map keyed by NKM {@code realId}
-     * @throws IllegalArgumentException when {@code url} is malformed or timeout is not positive
-     * @throws IOException when the HTTP status or JSON payload is invalid
+     * @param url NKM 节点列表接口地址
+     * @param timeoutMillis 连接和读取超时时间，单位毫秒
+     * @return 以 NKM {@code realId} 为 key、保持插入顺序的 Map
+     * @throws IllegalArgumentException 当 {@code url} 格式非法或超时时间不是正数时抛出
+     * @throws IOException 当 HTTP 状态码或 JSON 载荷无效时抛出
      */
     public static Map<String, NeoNode> getFromNKM(String url, int timeoutMillis) throws IOException {
         URI endpoint = parseEndpoint(url);

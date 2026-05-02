@@ -14,7 +14,7 @@ Maven：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi</artifactId>
-    <version>7.1.3</version>
+    <version>7.1.5</version>
 </dependency>
 ```
 
@@ -22,7 +22,7 @@ Gradle Kotlin DSL：
 
 ```kotlin
 dependencies {
-    implementation("top.ceroxe.api:neolinkapi:7.1.3")
+    implementation("top.ceroxe.api:neolinkapi:7.1.5")
 }
 ```
 
@@ -30,7 +30,7 @@ Gradle Groovy DSL：
 
 ```groovy
 dependencies {
-    implementation 'top.ceroxe.api:neolinkapi:7.1.3'
+    implementation 'top.ceroxe.api:neolinkapi:7.1.5'
 }
 ```
 
@@ -377,32 +377,9 @@ NeoLinkAPI tunnel = new NeoLinkAPI(cfg);
 - NeoProxyServer 运行期如果发送“自然语言终止原因 + `:>exit`”，API 会先按内部 `LanguageData` 精确识别该自然语言文本，再把终止映射回结构化异常，而不是简单当作普通断链。
 - UDP 从服务端到本地的反序列化遇到非法帧时，会记录调试信息并透明丢弃该帧，不会因为单个坏包直接杀掉整条隧道。
 
-## 7.1.1 tunnel address
+## 连接回调
 
-`getTunAddr()` now returns the full remote connection address provided by NeoProxyServer. The API no longer exposes `setOnRemotePortChanged(IntConsumer)` because callers must not reconstruct the public endpoint from a domain and a numeric port.
-
-## 7.1.0 NKM node fetcher
-
-`NodeFetcher.getFromNKM(url)` and `NodeFetcher.getFromNKM(url, timeoutMillis)` now fetch NKM public nodes and return `Map<String, NeoNode>` keyed by stable `realId`. `NeoNode.toCfg(key, localPort)` converts a selected public node to a complete `NeoLinkCfg`.
-
-## 7.0.2 blocking start and NPS timeout
-
-`start()` now blocks until the tunnel is closed or fails. Use `close()` from another thread, a UI event, a service lifecycle callback, or a shutdown hook to stop the tunnel.
-
-`start(int connectToNpsTimeoutMillis)` lets callers override the connection timeout for NeoProxyServer hook and transfer sockets without changing the local downstream service timeout.
-
-## 7.0.1 skipped by Central Portal publishing lock
-
-Version `7.0.1` used the same API changes as `7.0.2`, but its Central Portal deployment stayed locked in `PUBLISHING`. Use `7.0.2`.
-
-## 7.0.0 Ceroxe API namespace
-
-NeoLinkAPI now depends on `top.ceroxe.api:ceroxe-core:2.0.0` and `top.ceroxe.api:ceroxe-detector:2.0.0`.
-All dependency coordinates and public examples now use the current `top.ceroxe` namespace.
-
-## Connection callbacks
-
-`setOnConnect` and `setOnDisconnect` now accept only `NeoLinkAPI.ConnectionEventHandler`:
+`setOnConnect` 和 `setOnDisconnect` 现在只接受 `NeoLinkAPI.ConnectionEventHandler`：
 
 ```java
 .setOnConnect((protocol, source, target) -> {
@@ -412,6 +389,3 @@ All dependency coordinates and public examples now use the current `top.ceroxe` 
     System.out.println(protocol + " disconnected: " + source + " -> " + target);
 })
 ```
-
-The `protocol` value is `NeoLinkAPI.TransportProtocol.TCP` or `NeoLinkAPI.TransportProtocol.UDP`, resolved by the API when it creates the forwarding channel.
-The old two-address and no-address overloads were removed so callers cannot accidentally label UDP traffic as TCP.

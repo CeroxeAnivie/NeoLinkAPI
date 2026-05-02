@@ -12,13 +12,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 /**
- * Per-client proxy resolver.
+ * 每个客户端实例独立持有的代理解析器。
  *
- * <p>The original client stored parsed proxy state in static fields because it
- * was a process-wide application. The API version keeps proxy state inside each
- * client instance. Proxy authentication is also performed during this object's
- * own SOCKS5/HTTP CONNECT handshake instead of installing a JVM-wide
- * {@link java.net.Authenticator}.</p>
+ * <p>原始客户端因为是进程级应用，会把解析后的代理状态放在静态字段里。API 版本则
+ * 把代理状态收敛到每个客户端实例内部。代理认证也在这个对象自己的 SOCKS5 / HTTP
+ * CONNECT 握手过程中完成，而不是安装一个全局的 {@link java.net.Authenticator}。</p>
  */
 public final class ProxyOperator {
     public static final int TO_NEO = 0;

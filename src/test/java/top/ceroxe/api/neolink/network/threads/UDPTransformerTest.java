@@ -1,332 +1,115 @@
 package top.ceroxe.api.neolink.network.threads;
 
-import top.ceroxe.api.net.SecureSocket;
-import top.ceroxe.api.neolink.util.Debugger;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import top.ceroxe.api.net.SecureSocket;
 
-import java.lang.reflect.Constructor;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
+import java.io.UncheckedIOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
-/**
- * UDPTransformer 测试类
- *
- * 测试范围：
- * 1. 数据包序列化/反序列化
- * 2. 构造函数初始化
- * 3. 模式常量验证
- * 4. run 方法行为
- * 5. 缓冲区初始化
- */
-@DisplayName("UDPTransformer UDP转发器测试")
+@DisplayName("UDPTransformer behavior")
 class UDPTransformerTest {
+    @Test
+    @DisplayName("IPv4 packets serialize and deserialize consistently")
+    void serializeAndDeserializeIpv4Packet() throws Exception {
+        byte[] payload = "Hello UDP".getBytes(StandardCharsets.UTF_8);
+        InetAddress address = InetAddress.getByName("127.0.0.1");
+        DatagramPacket originalPacket = new DatagramPacket(payload, payload.length, address, 12345);
 
-    private boolean originalDebugMode;
+        UDPTransformer transformer = new UDPTransformer((SecureSocket) null, (DatagramSocket) null);
+        byte[] serialized = invokeSerialize(transformer, originalPacket);
+        DatagramPacket deserialized = UDPTransformer.deserializeToDatagramPacket(serialized);
 
-    @BeforeEach
-    void setUp() {
-        originalDebugMode = Debugger.isEnabled();
-        Debugger.setEnabled(false);
-    }
-
-    @AfterEach
-    void tearDown() {
-        Debugger.setEnabled(originalDebugMode);
+        assertNotNull(deserialized);
+        assertEquals(12345, deserialized.getPort());
+        assertArrayEquals(payload, deserialized.getData());
     }
 
     @Test
-    @DisplayName("MODE_NEO_TO_LOCAL 常量应为 0")
-    void testModeNeoToLocalConstant() throws Exception {
-        var field = UDPTransformer.class.getDeclaredField("MODE_NEO_TO_LOCAL");
-        field.setAccessible(true);
-        int value = field.getInt(null);
-        assertEquals(0, value);
+    @DisplayName("IPv6 packets serialize and deserialize consistently")
+    void serializeAndDeserializeIpv6Packet() throws Exception {
+        byte[] payload = "IPv6".getBytes(StandardCharsets.UTF_8);
+        InetAddress address = InetAddress.getByName("::1");
+        DatagramPacket originalPacket = new DatagramPacket(payload, payload.length, address, 54321);
+
+        UDPTransformer transformer = new UDPTransformer((SecureSocket) null, (DatagramSocket) null);
+        byte[] serialized = invokeSerialize(transformer, originalPacket);
+        DatagramPacket deserialized = UDPTransformer.deserializeToDatagramPacket(serialized);
+
+        assertNotNull(deserialized);
+        assertEquals(54321, deserialized.getPort());
+        assertArrayEquals(payload, deserialized.getData());
     }
 
     @Test
-    @DisplayName("MODE_LOCAL_TO_NEO 常量应为 1")
-    void testModeLocalToNeoConstant() throws Exception {
-        var field = UDPTransformer.class.getDeclaredField("MODE_LOCAL_TO_NEO");
-        field.setAccessible(true);
-        int value = field.getInt(null);
-        assertEquals(1, value);
-    }
+    @DisplayName("Malformed packets report diagnostics to the provided debug sink")
+    void malformedPacketUsesProvidedDebugSink() {
+        AtomicReference<String> debugMessage = new AtomicReference<>();
+        AtomicReference<Throwable> debugCause = new AtomicReference<>();
 
-    @Test
-    @DisplayName("BUFFER_LENGTH 应为 65535")
-    void testBufferLengthConstant() throws Exception {
-        var field = UDPTransformer.class.getDeclaredField("BUFFER_LENGTH");
-        field.setAccessible(true);
-        assertTrue(Modifier.isPrivate(field.getModifiers()));
-        assertTrue(Modifier.isFinal(field.getModifiers()));
-        int value = field.getInt(null);
-        assertEquals(65535, value);
-    }
-
-    @Test
-    @DisplayName("构造函数应正确初始化 MODE_NEO_TO_LOCAL 模式")
-    void testConstructorNeoToLocalMode() throws Exception {
-        Constructor<?> constructor = UDPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, DatagramSocket.class);
-        constructor.setAccessible(true);
-
-        UDPTransformer transformer = (UDPTransformer) constructor.newInstance(null, null);
-
-        Field modeField = UDPTransformer.class.getDeclaredField("mode");
-        modeField.setAccessible(true);
-        int mode = modeField.getInt(transformer);
-        assertEquals(0, mode);
-    }
-
-    @Test
-    @DisplayName("构造函数应正确初始化 MODE_LOCAL_TO_NEO 模式")
-    void testConstructorLocalToNeoMode() throws Exception {
-        Constructor<?> constructor = UDPTransformer.class.getDeclaredConstructor(
-                DatagramSocket.class, SecureSocket.class);
-        constructor.setAccessible(true);
-
-        UDPTransformer transformer = (UDPTransformer) constructor.newInstance(null, null);
-
-        Field modeField = UDPTransformer.class.getDeclaredField("mode");
-        modeField.setAccessible(true);
-        int mode = modeField.getInt(transformer);
-        assertEquals(1, mode);
-    }
-
-    @Test
-    @DisplayName("构造函数应正确初始化接收缓冲区")
-    void testConstructorReceiveBufferInitialization() throws Exception {
-        Constructor<?> constructor = UDPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, DatagramSocket.class);
-        constructor.setAccessible(true);
-
-        UDPTransformer transformer = (UDPTransformer) constructor.newInstance(null, null);
-
-        Field bufferField = UDPTransformer.class.getDeclaredField("receiveBuffer");
-        bufferField.setAccessible(true);
-        byte[] buffer = (byte[]) bufferField.get(transformer);
-        assertNotNull(buffer);
-        assertEquals(65535, buffer.length);
-    }
-
-    @Test
-    @DisplayName("构造函数应正确初始化序列化缓冲区")
-    void testConstructorSerializationBufferInitialization() throws Exception {
-        Constructor<?> constructor = UDPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, DatagramSocket.class);
-        constructor.setAccessible(true);
-
-        UDPTransformer transformer = (UDPTransformer) constructor.newInstance(null, null);
-
-        Field bufferField = UDPTransformer.class.getDeclaredField("serializationBuffer");
-        bufferField.setAccessible(true);
-        java.nio.ByteBuffer buffer = (java.nio.ByteBuffer) bufferField.get(transformer);
-        assertNotNull(buffer);
-        assertEquals(65565, buffer.capacity());
-    }
-
-    @Test
-    @DisplayName("run 方法在 null socket 时应安全结束")
-    void testRunWithNullSockets() throws Exception {
-        Constructor<?> constructor = UDPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, DatagramSocket.class);
-        constructor.setAccessible(true);
-
-        UDPTransformer transformer = (UDPTransformer) constructor.newInstance(null, null);
-
-        assertDoesNotThrow(() -> transformer.run());
-    }
-
-    @Test
-    @DisplayName("run 方法在 MODE_LOCAL_TO_NEO 时应安全结束")
-    void testRunWithLocalToNeoMode() throws Exception {
-        Constructor<?> constructor = UDPTransformer.class.getDeclaredConstructor(
-                DatagramSocket.class, SecureSocket.class);
-        constructor.setAccessible(true);
-
-        UDPTransformer transformer = (UDPTransformer) constructor.newInstance(null, null);
-
-        assertDoesNotThrow(() -> transformer.run());
-    }
-
-    private Object createTransformerInstance() throws Exception {
-        Constructor<?> constructor = UDPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, DatagramSocket.class
+        DatagramPacket packet = UDPTransformer.deserializeToDatagramPacket(
+                new byte[20],
+                true,
+                (message, cause) -> {
+                    debugMessage.set(message);
+                    debugCause.set(cause);
+                }
         );
-        constructor.setAccessible(true);
-        return constructor.newInstance(null, null);
+
+        assertNull(packet);
+        assertNotNull(debugMessage.get());
+        assertNull(debugCause.get());
     }
 
     @Test
-    @DisplayName("deserializeToDatagramPacket 应正确反序列化有效数据")
-    void testDeserializeToDatagramPacketValidData() throws Exception {
-        byte[] testData = "Hello UDP".getBytes();
-        InetAddress testAddress = InetAddress.getByName("127.0.0.1");
-        int testPort = 12345;
+    @DisplayName("Malformed packets stay silent when debug is disabled")
+    void malformedPacketRespectsDisabledDebug() {
+        AtomicInteger debugCalls = new AtomicInteger();
 
-        DatagramPacket originalPacket = new DatagramPacket(testData, testData.length, testAddress, testPort);
+        DatagramPacket packet = UDPTransformer.deserializeToDatagramPacket(
+                new byte[20],
+                false,
+                (message, cause) -> debugCalls.incrementAndGet()
+        );
 
-        Object instance = createTransformerInstance();
-        Method serializeMethod = UDPTransformer.class.getDeclaredMethod("serializeDatagramPacket", DatagramPacket.class);
-        serializeMethod.setAccessible(true);
-
-        byte[] serialized = (byte[]) serializeMethod.invoke(instance, originalPacket);
-
-        DatagramPacket deserialized = UDPTransformer.deserializeToDatagramPacket(serialized);
-
-        assertNotNull(deserialized);
-        assertEquals(testData.length, deserialized.getLength());
-        assertEquals(testPort, deserialized.getPort());
-        assertArrayEquals(testData, deserialized.getData());
+        assertNull(packet);
+        assertEquals(0, debugCalls.get());
     }
 
     @Test
-    @DisplayName("deserializeToDatagramPacket 应拒绝无效魔数")
-    void testDeserializeToDatagramPacketInvalidMagic() {
-        byte[] invalidData = new byte[20];
-        for (int i = 0; i < 20; i++) {
-            invalidData[i] = (byte) i;
-        }
-
-        assertNull(UDPTransformer.deserializeToDatagramPacket(invalidData));
+    @DisplayName("Constructor fails fast for an unresolvable local host")
+    void constructorRejectsUnresolvableLocalHost() {
+        assertThrows(
+                UncheckedIOException.class,
+                () -> new UDPTransformer((SecureSocket) null, (DatagramSocket) null, "nonexistent.invalid.test", 1)
+        );
     }
 
     @Test
-    @DisplayName("deserializeToDatagramPacket 应处理 IPv6 地址")
-    void testDeserializeToDatagramPacketIPv6() throws Exception {
-        byte[] testData = "IPv6 Test".getBytes();
-        InetAddress testAddress = InetAddress.getByName("::1");
-        int testPort = 54321;
+    @DisplayName("run tolerates null sockets")
+    void runWithNullSocketsDoesNotThrow() {
+        UDPTransformer neoToLocal = new UDPTransformer((SecureSocket) null, (DatagramSocket) null);
+        UDPTransformer localToNeo = new UDPTransformer((DatagramSocket) null, (SecureSocket) null);
 
-        DatagramPacket originalPacket = new DatagramPacket(testData, testData.length, testAddress, testPort);
-
-        Object instance = createTransformerInstance();
-        Method serializeMethod = UDPTransformer.class.getDeclaredMethod("serializeDatagramPacket", DatagramPacket.class);
-        serializeMethod.setAccessible(true);
-
-        byte[] serialized = (byte[]) serializeMethod.invoke(instance, originalPacket);
-
-        DatagramPacket deserialized = UDPTransformer.deserializeToDatagramPacket(serialized);
-
-        assertNotNull(deserialized);
-        assertEquals(testData.length, deserialized.getLength());
-        assertEquals(testPort, deserialized.getPort());
-        assertArrayEquals(testData, deserialized.getData());
+        assertDoesNotThrow(neoToLocal::run);
+        assertDoesNotThrow(localToNeo::run);
     }
 
-    @Test
-    @DisplayName("序列化数据应包含正确的魔数")
-    void testSerializedDataContainsMagicNumber() throws Exception {
-        byte[] testData = "Magic Test".getBytes();
-        InetAddress testAddress = InetAddress.getByName("192.168.1.1");
-        int testPort = 8080;
-
-        DatagramPacket packet = new DatagramPacket(testData, testData.length, testAddress, testPort);
-
-        Object instance = createTransformerInstance();
-        Method serializeMethod = UDPTransformer.class.getDeclaredMethod("serializeDatagramPacket", DatagramPacket.class);
-        serializeMethod.setAccessible(true);
-
-        byte[] serialized = (byte[]) serializeMethod.invoke(instance, packet);
-
-        assertNotNull(serialized);
-        assertTrue(serialized.length >= 4);
-
-        int magic = ((serialized[0] & 0xFF) << 24) |
-                ((serialized[1] & 0xFF) << 16) |
-                ((serialized[2] & 0xFF) << 8) |
-                (serialized[3] & 0xFF);
-
-        assertEquals(0xDEADBEEF, magic);
-    }
-
-    @Test
-    @DisplayName("序列化后反序列化应保持数据一致性")
-    void testSerializeDeserializeConsistency() throws Exception {
-        byte[] testData = new byte[1000];
-        for (int i = 0; i < 1000; i++) {
-            testData[i] = (byte) (i % 256);
-        }
-        InetAddress testAddress = InetAddress.getByName("10.0.0.1");
-        int testPort = 9999;
-
-        DatagramPacket originalPacket = new DatagramPacket(testData, testData.length, testAddress, testPort);
-
-        Object instance = createTransformerInstance();
-        Method serializeMethod = UDPTransformer.class.getDeclaredMethod("serializeDatagramPacket", DatagramPacket.class);
-        serializeMethod.setAccessible(true);
-
-        byte[] serialized = (byte[]) serializeMethod.invoke(instance, originalPacket);
-        DatagramPacket deserialized = UDPTransformer.deserializeToDatagramPacket(serialized);
-
-        assertNotNull(deserialized);
-        assertEquals(originalPacket.getLength(), deserialized.getLength());
-        assertEquals(originalPacket.getPort(), deserialized.getPort());
-        assertArrayEquals(originalPacket.getData(), deserialized.getData());
-    }
-
-    @Test
-    @DisplayName("空数据包序列化应正常工作")
-    void testSerializeEmptyPacket() throws Exception {
-        byte[] testData = new byte[0];
-        InetAddress testAddress = InetAddress.getByName("127.0.0.1");
-        int testPort = 12345;
-
-        DatagramPacket packet = new DatagramPacket(testData, 0, testAddress, testPort);
-
-        Object instance = createTransformerInstance();
-        Method serializeMethod = UDPTransformer.class.getDeclaredMethod("serializeDatagramPacket", DatagramPacket.class);
-        serializeMethod.setAccessible(true);
-
-        byte[] serialized = (byte[]) serializeMethod.invoke(instance, packet);
-        DatagramPacket deserialized = UDPTransformer.deserializeToDatagramPacket(serialized);
-
-        assertNotNull(deserialized);
-        assertEquals(0, deserialized.getLength());
-    }
-
-    @Test
-    @DisplayName("run 方法应实现 Runnable 接口")
-    void testImplementsRunnable() {
-        assertTrue(Runnable.class.isAssignableFrom(UDPTransformer.class));
-    }
-
-    @Test
-    @DisplayName("plainSocket 字段应正确初始化")
-    void testPlainSocketField() throws Exception {
-        Constructor<?> constructor = UDPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, DatagramSocket.class);
-        constructor.setAccessible(true);
-
-        UDPTransformer transformer = (UDPTransformer) constructor.newInstance(null, null);
-
-        Field plainSocketField = UDPTransformer.class.getDeclaredField("plainSocket");
-        plainSocketField.setAccessible(true);
-        DatagramSocket socket = (DatagramSocket) plainSocketField.get(transformer);
-        assertNull(socket);
-    }
-
-    @Test
-    @DisplayName("secureSocket 字段应正确初始化")
-    void testSecureSocketField() throws Exception {
-        Constructor<?> constructor = UDPTransformer.class.getDeclaredConstructor(
-                SecureSocket.class, DatagramSocket.class);
-        constructor.setAccessible(true);
-
-        UDPTransformer transformer = (UDPTransformer) constructor.newInstance(null, null);
-
-        Field secureSocketField = UDPTransformer.class.getDeclaredField("secureSocket");
-        secureSocketField.setAccessible(true);
-        SecureSocket socket = (SecureSocket) secureSocketField.get(transformer);
-        assertNull(socket);
+    private static byte[] invokeSerialize(UDPTransformer transformer, DatagramPacket packet) throws Exception {
+        var method = UDPTransformer.class.getDeclaredMethod("serializeDatagramPacket", DatagramPacket.class);
+        method.setAccessible(true);
+        return (byte[]) method.invoke(transformer, packet);
     }
 }

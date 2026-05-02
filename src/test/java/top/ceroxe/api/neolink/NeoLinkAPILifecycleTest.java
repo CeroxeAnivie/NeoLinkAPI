@@ -1,10 +1,10 @@
 package top.ceroxe.api.neolink;
 
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import top.ceroxe.api.OshiUtils;
 import top.ceroxe.api.net.SecureServerSocket;
 import top.ceroxe.api.net.SecureSocket;
-import org.junit.jupiter.api.DisplayName;
-import org.junit.jupiter.api.Test;
 import top.ceroxe.api.neolink.exception.NoMoreNetworkFlowException;
 import top.ceroxe.api.neolink.exception.NoMorePortException;
 import top.ceroxe.api.neolink.exception.OutDatedKeyException;
@@ -17,13 +17,20 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.CopyOnWriteArrayList;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.fail;
 
 @DisplayName("NeoLinkAPI lifecycle")
 class NeoLinkAPILifecycleTest {
@@ -71,6 +78,67 @@ class NeoLinkAPILifecycleTest {
             assertFalse(neoLink.isActive());
 
             assertTrue(handshakes.await(3, TimeUnit.SECONDS));
+            serverThread.join(3000);
+            if (serverError.get() != null) {
+                fail("Lifecycle test server failed", serverError.get());
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("重启后 getTunAddr 必须等待并返回最新 tunnel 地址")
+    void getTunAddrReturnsLatestAddressAfterRestart() throws Exception {
+        CountDownLatch firstHandshake = new CountDownLatch(1);
+        CountDownLatch secondHandshake = new CountDownLatch(1);
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
+
+        try (SecureServerSocket server = new SecureServerSocket(0)) {
+            Thread serverThread = Thread.ofVirtual().start(() -> {
+                try (SecureSocket firstSocket = server.accept()) {
+                    assertNotNull(firstSocket.receiveStr(2000));
+                    firstSocket.sendStr("Connection build up successfully");
+                    firstSocket.sendStr("Use the address: first.example.test:10001 to start up connections.");
+                    firstHandshake.countDown();
+                    Thread.sleep(1000);
+                } catch (Throwable e) {
+                    serverError.compareAndSet(null, e);
+                    return;
+                }
+
+                try (SecureSocket secondSocket = server.accept()) {
+                    assertNotNull(secondSocket.receiveStr(2000));
+                    secondSocket.sendStr("Connection build up successfully");
+                    Thread.sleep(300);
+                    secondSocket.sendStr("Use the address: second.example.test:10002 to start up connections.");
+                    secondHandshake.countDown();
+                    Thread.sleep(1000);
+                } catch (Throwable e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
+
+            NeoLinkCfg cfg = new NeoLinkCfg("localhost", server.getLocalPort(), server.getLocalPort(), "key", 25565)
+                    .setTCPEnabled(false)
+                    .setUDPEnabled(false);
+            NeoLinkAPI neoLink = new NeoLinkAPI(cfg);
+
+            CompletableFuture<Void> firstStart = startAsync(neoLink);
+            assertTrue(firstHandshake.await(3, TimeUnit.SECONDS));
+            assertEquals("first.example.test:10001", neoLink.getTunAddr());
+
+            neoLink.close();
+            assertStartCompleted(firstStart);
+
+            CompletableFuture<Void> secondStart = startAsync(neoLink);
+            CompletableFuture<String> secondTunAddr = CompletableFuture.supplyAsync(neoLink::getTunAddr);
+            Thread.sleep(100);
+            assertFalse(secondTunAddr.isDone(), "getTunAddr() must wait for the restarted tunnel address.");
+
+            assertTrue(secondHandshake.await(3, TimeUnit.SECONDS));
+            assertEquals("second.example.test:10002", secondTunAddr.get(3, TimeUnit.SECONDS));
+
+            neoLink.close();
+            assertStartCompleted(secondStart);
             serverThread.join(3000);
             if (serverError.get() != null) {
                 fail("Lifecycle test server failed", serverError.get());

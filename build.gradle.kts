@@ -10,7 +10,7 @@ plugins {
 }
 
 group = "top.ceroxe.api"
-val apiVersion = "7.1.3"
+val apiVersion = "7.1.5"
 version = apiVersion
 val mavenArtifactId = "neolinkapi"
 

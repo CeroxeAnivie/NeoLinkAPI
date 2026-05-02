@@ -11,7 +11,7 @@ import java.util.function.BiConsumer;
 import static top.ceroxe.api.neolink.network.InternetOperator.*;
 
 /**
- * TCP 数据转发器
+ * TCP 数据转发器。
  *
  * 核心职责：
  * 1. 在本地服务和 Neo 服务器之间双向转发 TCP 数据
@@ -19,14 +19,14 @@ import static top.ceroxe.api.neolink.network.InternetOperator.*;
  * 3. 通过复用实例缓冲区减少 GC 压力
  *
  * 设计特点：
- * - 双向转发：支持 Neo 到本地、本地到 Neo 两种模式
+ * - 双向转发：同时支持 Neo -> 本地 和 本地 -> Neo 两种模式
  * - 缓冲区复用：每个实例使用独立缓冲区，避免频繁分配内存
- * - Proxy Protocol v2 支持：可选剥离或透传真实客户端 IP
- * - 优雅关闭：支持中断信号，确保资源正确释放
+ * - Proxy Protocol v2 支持：可按配置剥离或透传真实客户端 IP
+ * - 优雅关闭：支持中断信号，确保资源被正确释放
  *
  * 性能优化：
- * - 使用 65535 字节缓冲区，充分利用网络带宽
- * - 缓冲区实例化后复用，减少 GC 压力
+ * - 使用 65535 字节缓冲区，尽量吃满网络吞吐
+ * - 缓冲区在实例级复用，减少 GC 压力
  *
  * @author NeoProxy Team
  * @since 5.0.0
@@ -109,11 +109,12 @@ public class TCPTransformer implements Runnable {
     }
 
     /**
-     * 将本地数据转发到 Neo 服务器 (Local -> Neo)
+     * 将本地数据转发到 Neo 服务器（Local -> Neo）。
      */
     private void transferDataToNeoServer() {
-        // 修改：直接获取 InputStream，不要包裹 BufferedInputStream
-        try (var inputFromLocal = plainSocket.getInputStream()) {
+        // 直接获取 InputStream，避免再包一层 BufferedInputStream 造成额外拷贝。
+        try {
+            var inputFromLocal = plainSocket.getInputStream();
             int bytesRead;
             // 直接从 Socket 读入 64KB 缓冲区，减少额外拷贝，同时保持每个连接的数据隔离。
             while ((bytesRead = inputFromLocal.read(buffer)) != -1) {
@@ -121,22 +122,21 @@ public class TCPTransformer implements Runnable {
                 secureSocket.sendBytes(buffer, 0, bytesRead);
             }
             debug("Local TCP stream reached EOF. Sending NeoProxyServer EOF frame.");
-            secureSocket.sendBytes(null); // 发送结束信号
-            shutdownInput(plainSocket);
+            secureSocket.sendBytes(null); // 发送结束信号。
         } catch (Exception e) {
             debug(e);
-            shutdownOutput(secureSocket);
-            shutdownInput(plainSocket);
         }
     }
 
     /**
-     * 将 Neo 服务器数据转发到本地 (Neo -> Local)
-     * 【核心逻辑】在此处检测并处理 Proxy Protocol 头
+     * 将 Neo 服务器数据转发到本地（Neo -> Local）。
+     *
+     * <p>核心逻辑是在这里检测并处理 Proxy Protocol 头。</p>
      */
     private void transferDataToLocalServer() {
-        // 修改：直接获取 OutputStream，不要包裹 BufferedOutputStream
-        try (var outputToLocal = plainSocket.getOutputStream()) {
+        // 直接获取 OutputStream，避免再包一层 BufferedOutputStream。
+        try {
+            var outputToLocal = plainSocket.getOutputStream();
             byte[] data;
             ProxyProtocolStripper proxyProtocolStripper = new ProxyProtocolStripper(enableProxyProtocol);
 
@@ -149,7 +149,7 @@ public class TCPTransformer implements Runnable {
                     outputToLocal.write(forwardData);
                 }
 
-                // 移除 flush()，因为 SocketOutputStream 默认是直接发送的，且没有 Buffer 就不需要 flush
+                // 不再显式 flush()，因为 SocketOutputStream 默认会直接发送，这里也没有额外 Buffer。
                 // outputToLocal.flush();
             }
             byte[] trailingFirstFrame = proxyProtocolStripper.finish();
@@ -157,17 +157,15 @@ public class TCPTransformer implements Runnable {
                 outputToLocal.write(trailingFirstFrame);
             }
             debug("NeoProxyServer TCP stream reached EOF.");
-            shutdownInput(secureSocket);
             shutdownOutput(plainSocket);
         } catch (Exception e) {
             debug(e);
-            shutdownInput(secureSocket);
             shutdownOutput(plainSocket);
         }
     }
 
     /**
-     * 检查数据包是否以 Proxy Protocol v2 签名开头
+     * 检查数据包是否以 Proxy Protocol v2 签名开头。
      */
     private boolean isProxyProtocolV2Signature(byte[] data) {
         if (data == null || data.length < PPV2_SIG.length) {
@@ -277,9 +275,7 @@ public class TCPTransformer implements Runnable {
         } catch (Exception e) {
             debug(e);
         } finally {
-            // 无论正常结束还是异常结束，都确保关闭资源
-            close(plainSocket, secureSocket);
-            debug("TCP transformer closed sockets.");
+            debug("TCP transformer finished.");
         }
     }
 

@@ -3,13 +3,11 @@ package top.ceroxe.api.neolink;
 import java.util.Objects;
 
 /**
- * Immutable NKM public-node metadata.
+ * 不可变的 NKM 公共节点元数据。
  *
- * <p>NKM nodes carry UI metadata such as display name and icon beside the
- * connection endpoint. {@link NeoLinkCfg} intentionally stores only tunnel
- * startup configuration, so this type keeps the complete node-list payload and
- * exposes {@link #toCfg(String, int)} for callers that want to start a tunnel from a
- * selected node.</p>
+ * <p>NKM 节点除了连接端点之外，还携带展示名、图标等 UI 元数据。{@link NeoLinkCfg}
+ * 刻意只保存隧道启动配置，因此这里保留完整的节点列表载荷，并暴露
+ * {@link #toCfg(String, int)}，方便调用方基于选定节点直接启动隧道。</p>
  */
 public final class NeoNode {
     private final String name;
@@ -20,15 +18,14 @@ public final class NeoNode {
     private final int connectPort;
 
     /**
-     * Creates an immutable NKM node.
+     * 创建一个不可变的 NKM 节点对象。
      *
-     * @param name user-facing display name from NKM
-     * @param realId stable NKM node identity; may be {@code null} for manually
-     *               constructed nodes, but {@link NodeFetcher} requires it
-     * @param address NeoProxyServer domain or IP
-     * @param iconSvg optional SVG icon content from NKM
-     * @param hookPort NeoProxyServer hook/control port
-     * @param connectPort NeoProxyServer transfer port
+     * @param name 来自 NKM 的展示名
+     * @param realId 稳定的 NKM 节点标识；手工构造时可以为 {@code null}，但 {@link NodeFetcher} 需要它
+     * @param address NeoProxyServer 的域名或 IP
+     * @param iconSvg 来自 NKM 的可选 SVG 图标内容
+     * @param hookPort NeoProxyServer 控制端口
+     * @param connectPort NeoProxyServer 传输端口
      */
     public NeoNode(String name, String realId, String address, String iconSvg, int hookPort, int connectPort) {
         this.name = requireText(name, "name");
@@ -40,17 +37,15 @@ public final class NeoNode {
     }
 
     /**
-     * Converts this public-node metadata into a complete tunnel configuration.
+     * 将这个公共节点元数据转换为完整的隧道配置。
      *
-     * <p>NKM only provides the public remote endpoint. The access key and local
-     * downstream port are caller-owned private values, so this conversion
-     * requires them up front instead of creating a partially usable config that
-     * can fail later during tunnel startup.</p>
+     * <p>NKM 只提供公开的远端端点。访问密钥和本地下游端口属于调用方私有数据，因此
+     * 这里要求在转换时一次性传入，而不是返回一个半成品配置让后续启动阶段再失败。</p>
      *
-     * @param key access key for the selected NeoProxyServer node
-     * @param localPort local downstream service port
-     * @return a NeoLink configuration built from this node and caller-owned values
-     * @throws IllegalArgumentException when {@code key} is blank or {@code localPort} is outside 1..65535
+     * @param key 所选 NeoProxyServer 节点的访问密钥
+     * @param localPort 本地下游服务端口
+     * @return 基于当前节点和调用方私有配置构造出的 NeoLink 配置
+     * @throws IllegalArgumentException 当 {@code key} 为空白或 {@code localPort} 不在 1..65535 时抛出
      */
     public NeoLinkCfg toCfg(String key, int localPort) {
         return new NeoLinkCfg(address, hookPort, connectPort, key, localPort);
