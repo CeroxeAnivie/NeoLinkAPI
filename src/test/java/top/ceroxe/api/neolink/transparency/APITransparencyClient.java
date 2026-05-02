@@ -24,53 +24,62 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 
 /**
- * 透明链路压测用临时客户端。
+ * API 透明性校验用客户端。
  *
  * <p>调用方式：
  * <pre>{@code
- * java ... top.ceroxe.api.neolink.transparency.NeoLinkTransparencyClient host:port
- * java ... top.ceroxe.api.neolink.transparency.NeoLinkTransparencyClient [ipv6-host]:port
+ * java ... top.ceroxe.api.neolink.transparency.APITransparencyClient host:port
+ * java ... top.ceroxe.api.neolink.transparency.APITransparencyClient [ipv6-host]:port
  * }</pre>
  *
  * <p>该类故意不依赖额外协议，只用最朴素的 TCP/UDP 回显校验透明性：
  * 只要回来的字节序列与发出去的完全一致，就说明链路没有偷偷改写载荷。
  */
-public final class NeoLinkTransparencyClient {
+public final class APITransparencyClient {
     private static final int TCP_CONNECT_TIMEOUT_MILLIS = 8_000;
     private static final int TCP_SO_TIMEOUT_MILLIS = 30_000;
     private static final int UDP_SO_TIMEOUT_MILLIS = 8_000;
     private static final int UDP_MAX_PAYLOAD = 60_000;
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    private NeoLinkTransparencyClient() {
+    private APITransparencyClient() {
     }
 
     public static void main(String[] args) throws Exception {
         if (args.length != 1 || args[0].isBlank()) {
-            System.err.println("用法: NeoLinkTransparencyClient <tunAddr>");
-            System.err.println("示例: NeoLinkTransparencyClient p.ceroxe.top:41234");
+            System.err.println("用法: APITransparencyClient <tunAddr>");
+            System.err.println("示例: APITransparencyClient p.ceroxe.top:41234");
             System.exit(2);
             return;
         }
 
-        TargetAddress target = TargetAddress.parse(args[0]);
+        int exitCode = runChecks(args[0]);
+        if (exitCode != 0) {
+            System.exit(exitCode);
+        }
+    }
+
+    static int runChecks(String tunAddr) throws Exception {
+        if (tunAddr == null || tunAddr.isBlank()) {
+            throw new IllegalArgumentException("tunAddr must not be blank");
+        }
+
+        TargetAddress target = TargetAddress.parse(tunAddr);
         Report report = new Report(target.raw());
 
         Instant begin = Instant.now();
-        execute(report, "tcp-connect-close", NeoLinkTransparencyClient::testTcpConnectClose, target);
-        execute(report, "tcp-small-text", NeoLinkTransparencyClient::testTcpSmallText, target);
-        execute(report, "tcp-binary-boundaries", NeoLinkTransparencyClient::testTcpBinaryBoundaries, target);
-        execute(report, "tcp-half-close", NeoLinkTransparencyClient::testTcpHalfClose, target);
-        execute(report, "tcp-concurrency", NeoLinkTransparencyClient::testTcpConcurrency, target);
-        execute(report, "udp-empty-payload", NeoLinkTransparencyClient::testUdpEmptyPayload, target);
-        execute(report, "udp-binary-boundaries", NeoLinkTransparencyClient::testUdpBinaryBoundaries, target);
-        execute(report, "udp-burst", NeoLinkTransparencyClient::testUdpBurst, target);
+        execute(report, "tcp-connect-close", APITransparencyClient::testTcpConnectClose, target);
+        execute(report, "tcp-small-text", APITransparencyClient::testTcpSmallText, target);
+        execute(report, "tcp-binary-boundaries", APITransparencyClient::testTcpBinaryBoundaries, target);
+        execute(report, "tcp-half-close", APITransparencyClient::testTcpHalfClose, target);
+        execute(report, "tcp-concurrency", APITransparencyClient::testTcpConcurrency, target);
+        execute(report, "udp-empty-payload", APITransparencyClient::testUdpEmptyPayload, target);
+        execute(report, "udp-binary-boundaries", APITransparencyClient::testUdpBinaryBoundaries, target);
+        execute(report, "udp-burst", APITransparencyClient::testUdpBurst, target);
         report.finish(Duration.between(begin, Instant.now()));
 
         System.out.println(report.render());
-        if (report.failed() > 0) {
-            System.exit(1);
-        }
+        return report.failed() > 0 ? 1 : 0;
     }
 
     private static void execute(Report report, String name, CaseExecutor executor, TargetAddress target) {
@@ -92,7 +101,7 @@ public final class NeoLinkTransparencyClient {
     }
 
     private static String testTcpSmallText(TargetAddress target) throws IOException {
-        byte[] payload = "NeoLink transparency probe: hello, world.\n第二行 mixed UTF-8.\n"
+        byte[] payload = "API transparency probe: hello, world.\n第二行 mixed UTF-8.\n"
                 .getBytes(StandardCharsets.UTF_8);
         byte[] echoed = roundTripTcp(target, payload, false);
         assertBytesEqual("tcp-small-text", payload, echoed);
@@ -381,7 +390,7 @@ public final class NeoLinkTransparencyClient {
 
         private String render() {
             StringBuilder builder = new StringBuilder(1024);
-            builder.append("=== NeoLink Transparency Report / 透明性校验报告 ===\n");
+            builder.append("=== API Transparency Report / API 透明性校验报告 ===\n");
             builder.append("target=").append(target).append('\n');
             builder.append("passed=").append(passed).append(", failed=").append(failed)
                     .append(", totalMillis=").append(totalDuration.toMillis()).append('\n');

@@ -21,66 +21,70 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * 透明链路压测服务端。
+ * API 透明性校验服务端。
  *
  * <p>职责只做两件事：
- * 1. 在本地 {@value #LOCAL_BIND_PORT} 同时启动 TCP/UDP 回环服务，确保下游行为绝对可预测；
+ * 1. 在本地指定端口同时启动 TCP/UDP 回环服务，确保下游行为绝对可预测；
  * 2. 使用当前仓库的 {@link NeoLinkAPI} 把该本地端口反代到 NeoProxyServer，输出最终 TUNAddr。
  *
  * <p>这样做的原因不是“为了方便演示”，而是为了把变量严格收束：
  * 本地服务只负责原样回显，任何数据错乱、截断、乱序、丢包、半关闭异常，都更容易定位到隧道链路本身。
  */
-public final class NeoLinkTransparencyServer {
+public final class APITransparencyServer {
     private static final String DEFAULT_REMOTE_DOMAIN = "p.ceroxe.top";
-    private static final int DEFAULT_HOOK_PORT = 55801;
-    private static final int DEFAULT_CONNECT_PORT = 55802;
-    private static final String ACCESS_KEY = "";
-    private static final int LOCAL_BIND_PORT = 7777;
+    private static final int DEFAULT_HOOK_PORT = 44801;
+    private static final int DEFAULT_CONNECT_PORT = 44802;
+    private static final int DEFAULT_LOCAL_PORT = 7777;
     private static final String DEFAULT_LOCAL_BIND_HOST = "127.0.0.1";
 
     private static final AtomicBoolean RUNNING = new AtomicBoolean(true);
-    private static final CountDownLatch TUNNEL_READY = new CountDownLatch(1);
 
-    private NeoLinkTransparencyServer() {
+    private APITransparencyServer() {
     }
 
     public static void main(String[] args) throws Exception {
-        String pidFile = System.getenv("NEOLINK_PID_FILE");
-        if (pidFile != null && !pidFile.isBlank()) {
-            try {
-                long pid = ProcessHandle.current().pid();
-                java.nio.file.Files.writeString(java.nio.file.Path.of(pidFile), String.valueOf(pid));
-            } catch (Exception ignored) {
-            }
-        }
-
         RuntimeArgs runtimeArgs = RuntimeArgs.parse(args);
-        EchoRuntime echoRuntime = startLocalEchoRuntime(runtimeArgs.localBindHost());
-        NeoLinkAPI tunnel = buildTunnel(runtimeArgs);
+        try (RunningServer server = start(runtimeArgs)) {
+            Runtime.getRuntime().addShutdownHook(new Thread(server::close, "neolink-transparency-shutdown"));
 
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> shutdown(tunnel, echoRuntime), "neolink-transparency-shutdown"));
+            System.out.println("[server] 使用的 remote domain = " + runtimeArgs.remoteDomain());
+            System.out.println("[server] 使用的 hook port = " + runtimeArgs.hookPort());
+            System.out.println("[server] 使用的 connect port = " + runtimeArgs.connectPort());
+            System.out.println("[server] 本地 echo 已监听 tcp/udp: " + runtimeArgs.localBindHost() + ":" + runtimeArgs.localPort());
+            System.out.println("[server] tunnel address = " + server.tunAddr());
+            System.out.println("[server] 请将此 TUNAddr 传给 APITransparencyClient");
 
-        Thread tunnelThread = Thread.ofVirtual().name("neolink-transparency-tunnel").start(() -> runTunnel(tunnel));
-        String tunAddr = waitForTunAddr(tunnel);
-
-        System.out.println("[server] 使用的 remote domain = " + runtimeArgs.remoteDomain());
-        System.out.println("[server] 使用的 hook port = " + runtimeArgs.hookPort());
-        System.out.println("[server] 使用的 connect port = " + runtimeArgs.connectPort());
-        System.out.println("[server] 本地 echo 已监听 tcp/udp: " + runtimeArgs.localBindHost() + ":" + LOCAL_BIND_PORT);
-        System.out.println("[server] tunnel address = " + tunAddr);
-        System.out.println("[server] 请将此 TUNAddr 传给 NeoLinkTransparencyClient");
-
-        TUNNEL_READY.countDown();
-        tunnelThread.join();
+            server.awaitTermination();
+        }
     }
 
-    private static EchoRuntime startLocalEchoRuntime(String localBindHost) throws IOException {
-        ServerSocket tcpServer = new ServerSocket(LOCAL_BIND_PORT, 128, InetAddress.getByName(localBindHost));
-        DatagramSocket udpServer = new DatagramSocket(LOCAL_BIND_PORT, InetAddress.getByName(localBindHost));
+    static RunningServer startForCheck(
+            String remoteDomain,
+            int hookPort,
+            int connectPort,
+            String accessKey,
+            int localPort,
+            String localBindHost
+    )
+            throws Exception {
+        return start(new RuntimeArgs(remoteDomain, hookPort, connectPort, accessKey, localPort, localBindHost));
+    }
+
+    private static RunningServer start(RuntimeArgs runtimeArgs) throws Exception {
+        RUNNING.set(true);
+        EchoRuntime echoRuntime = startLocalEchoRuntime(runtimeArgs.localBindHost(), runtimeArgs.localPort());
+        NeoLinkAPI tunnel = buildTunnel(runtimeArgs);
+        Thread tunnelThread = Thread.ofVirtual().name("neolink-transparency-tunnel").start(() -> runTunnel(tunnel));
+        String tunAddr = waitForTunAddr(tunnel);
+        return new RunningServer(tunAddr, tunnel, echoRuntime, tunnelThread);
+    }
+
+    private static EchoRuntime startLocalEchoRuntime(String localBindHost, int localPort) throws IOException {
+        ServerSocket tcpServer = new ServerSocket(localPort, 128, InetAddress.getByName(localBindHost));
+        DatagramSocket udpServer = new DatagramSocket(localPort, InetAddress.getByName(localBindHost));
 
         Thread.ofVirtual().name("transparency-tcp-accept").start(() -> acceptTcpLoop(tcpServer));
         Thread.ofVirtual().name("transparency-udp-echo").start(() -> serveUdpLoop(udpServer));
@@ -94,7 +98,7 @@ public final class NeoLinkTransparencyServer {
                 runtimeArgs.hookPort(),
                 runtimeArgs.connectPort(),
                 runtimeArgs.accessKey(),
-                LOCAL_BIND_PORT
+                runtimeArgs.localPort()
         )
                 .setLocalDomainName(runtimeArgs.localBindHost())
                 .setTCPEnabled(true)
@@ -244,25 +248,60 @@ public final class NeoLinkTransparencyServer {
         }
     }
 
-    private record RuntimeArgs(String remoteDomain, int hookPort, int connectPort, String localBindHost, String accessKey) {
+    static final class RunningServer implements AutoCloseable {
+        private final String tunAddr;
+        private final NeoLinkAPI tunnel;
+        private final EchoRuntime echoRuntime;
+        private final Thread tunnelThread;
+
+        private RunningServer(String tunAddr, NeoLinkAPI tunnel, EchoRuntime echoRuntime, Thread tunnelThread) {
+            this.tunAddr = Objects.requireNonNull(tunAddr, "tunAddr");
+            this.tunnel = Objects.requireNonNull(tunnel, "tunnel");
+            this.echoRuntime = Objects.requireNonNull(echoRuntime, "echoRuntime");
+            this.tunnelThread = Objects.requireNonNull(tunnelThread, "tunnelThread");
+        }
+
+        String tunAddr() {
+            return tunAddr;
+        }
+
+        void awaitTermination() throws InterruptedException {
+            tunnelThread.join();
+        }
+
+        @Override
+        public void close() {
+            shutdown(tunnel, echoRuntime);
+            try {
+                tunnelThread.join(5_000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    private record RuntimeArgs(String remoteDomain, int hookPort, int connectPort, String accessKey, int localPort, String localBindHost) {
         private RuntimeArgs {
             remoteDomain = requireText(remoteDomain, "remoteDomain");
+            accessKey = requireText(accessKey, "accessKey");
+            validatePort(localPort, "localPort");
             localBindHost = requireText(localBindHost, "localBindHost");
             validatePort(hookPort, "hookPort");
             validatePort(connectPort, "connectPort");
         }
 
         private static RuntimeArgs parse(String[] args) {
-            if (args.length > 5) {
+            if (args.length > 6) {
                 throw usage("too many arguments");
             }
 
             String remoteDomain = args.length >= 1 ? args[0] : DEFAULT_REMOTE_DOMAIN;
             int hookPort = args.length >= 2 ? parsePort(args[1], "hookPort") : DEFAULT_HOOK_PORT;
             int connectPort = args.length >= 3 ? parsePort(args[2], "connectPort") : DEFAULT_CONNECT_PORT;
-            String localBindHost = args.length >= 4 ? args[3] : DEFAULT_LOCAL_BIND_HOST;
-            String accessKey = args.length >= 5 && !args[4].isBlank() ? args[4] : ACCESS_KEY;
-            return new RuntimeArgs(remoteDomain, hookPort, connectPort, localBindHost, accessKey);
+            String accessKey = args.length >= 4 ? args[3] : "";
+            int localPort = args.length >= 5 ? parsePort(args[4], "localPort") : DEFAULT_LOCAL_PORT;
+            String localBindHost = args.length >= 6 ? args[5] : DEFAULT_LOCAL_BIND_HOST;
+            return new RuntimeArgs(remoteDomain, hookPort, connectPort, accessKey, localPort, localBindHost);
         }
     }
 
@@ -291,7 +330,7 @@ public final class NeoLinkTransparencyServer {
 
     private static IllegalArgumentException usage(String reason) {
         return new IllegalArgumentException(reason + System.lineSeparator()
-                + "用法: NeoLinkTransparencyServer [remoteDomain] [hookPort] [connectPort] [localBindHost]" + System.lineSeparator()
-                + "示例: NeoLinkTransparencyServer p.ceroxe.top 55801 55802 127.0.0.1");
+                + "用法: APITransparencyServer [remoteDomain] [hookPort] [connectPort] [accessKey] [localPort] [localBindHost]" + System.lineSeparator()
+                + "示例: APITransparencyServer p.ceroxe.top 44801 44802 YOUR_KEY 7777 127.0.0.1");
     }
 }
