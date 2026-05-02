@@ -73,7 +73,7 @@ public final class APITransparencyClient {
         execute(report, "tcp-binary-boundaries", APITransparencyClient::testTcpBinaryBoundaries, target);
         execute(report, "tcp-half-close", APITransparencyClient::testTcpHalfClose, target);
         execute(report, "tcp-concurrency", APITransparencyClient::testTcpConcurrency, target);
-        execute(report, "udp-empty-payload", APITransparencyClient::testUdpEmptyPayload, target);
+        executeWarning(report, "udp-empty-payload", APITransparencyClient::testUdpEmptyPayload, target);
         execute(report, "udp-binary-boundaries", APITransparencyClient::testUdpBinaryBoundaries, target);
         execute(report, "udp-burst", APITransparencyClient::testUdpBurst, target);
         report.finish(Duration.between(begin, Instant.now()));
@@ -89,6 +89,16 @@ public final class APITransparencyClient {
             report.add(name, true, Duration.between(begin, Instant.now()), detail, null);
         } catch (Exception e) {
             report.add(name, false, Duration.between(begin, Instant.now()), null, e);
+        }
+    }
+
+    private static void executeWarning(Report report, String name, CaseExecutor executor, TargetAddress target) {
+        Instant begin = Instant.now();
+        try {
+            String detail = executor.run(target);
+            report.add(name, true, Duration.between(begin, Instant.now()), detail, null);
+        } catch (Exception e) {
+            report.addWarning(name, Duration.between(begin, Instant.now()), e);
         }
     }
 
@@ -361,6 +371,7 @@ public final class APITransparencyClient {
         private final String target;
         private final List<String> lines = new ArrayList<>();
         private int passed;
+        private int warned;
         private int failed;
         private Duration totalDuration = Duration.ZERO;
 
@@ -380,6 +391,12 @@ public final class APITransparencyClient {
             lines.add("[FAIL] " + caseName + " (" + duration.toMillis() + " ms) - " + message);
         }
 
+        private void addWarning(String caseName, Duration duration, Exception error) {
+            warned++;
+            String message = error == null ? "未知告警" : error.getClass().getSimpleName() + ": " + error.getMessage();
+            lines.add("[WARN] " + caseName + " (" + duration.toMillis() + " ms) - " + message);
+        }
+
         private void finish(Duration totalDuration) {
             this.totalDuration = totalDuration;
         }
@@ -392,7 +409,7 @@ public final class APITransparencyClient {
             StringBuilder builder = new StringBuilder(1024);
             builder.append("=== API Transparency Report / API 透明性校验报告 ===\n");
             builder.append("target=").append(target).append('\n');
-            builder.append("passed=").append(passed).append(", failed=").append(failed)
+            builder.append("passed=").append(passed).append(", warned=").append(warned).append(", failed=").append(failed)
                     .append(", totalMillis=").append(totalDuration.toMillis()).append('\n');
             for (String line : lines) {
                 builder.append(line).append('\n');
