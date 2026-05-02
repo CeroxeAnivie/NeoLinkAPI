@@ -38,7 +38,7 @@ public final class NeoLinkTransparencyServer {
     private static final String DEFAULT_REMOTE_DOMAIN = "p.ceroxe.top";
     private static final int DEFAULT_HOOK_PORT = 55801;
     private static final int DEFAULT_CONNECT_PORT = 55802;
-    private static final String ACCESS_KEY = "FNT3055";
+    private static final String ACCESS_KEY = "";
     private static final int LOCAL_BIND_PORT = 7777;
     private static final String DEFAULT_LOCAL_BIND_HOST = "127.0.0.1";
 
@@ -49,6 +49,15 @@ public final class NeoLinkTransparencyServer {
     }
 
     public static void main(String[] args) throws Exception {
+        String pidFile = System.getenv("NEOLINK_PID_FILE");
+        if (pidFile != null && !pidFile.isBlank()) {
+            try {
+                long pid = ProcessHandle.current().pid();
+                java.nio.file.Files.writeString(java.nio.file.Path.of(pidFile), String.valueOf(pid));
+            } catch (Exception ignored) {
+            }
+        }
+
         RuntimeArgs runtimeArgs = RuntimeArgs.parse(args);
         EchoRuntime echoRuntime = startLocalEchoRuntime(runtimeArgs.localBindHost());
         NeoLinkAPI tunnel = buildTunnel(runtimeArgs);
@@ -84,7 +93,7 @@ public final class NeoLinkTransparencyServer {
                 runtimeArgs.remoteDomain(),
                 runtimeArgs.hookPort(),
                 runtimeArgs.connectPort(),
-                ACCESS_KEY,
+                runtimeArgs.accessKey(),
                 LOCAL_BIND_PORT
         )
                 .setLocalDomainName(runtimeArgs.localBindHost())
@@ -235,7 +244,7 @@ public final class NeoLinkTransparencyServer {
         }
     }
 
-    private record RuntimeArgs(String remoteDomain, int hookPort, int connectPort, String localBindHost) {
+    private record RuntimeArgs(String remoteDomain, int hookPort, int connectPort, String localBindHost, String accessKey) {
         private RuntimeArgs {
             remoteDomain = requireText(remoteDomain, "remoteDomain");
             localBindHost = requireText(localBindHost, "localBindHost");
@@ -244,7 +253,7 @@ public final class NeoLinkTransparencyServer {
         }
 
         private static RuntimeArgs parse(String[] args) {
-            if (args.length > 4) {
+            if (args.length > 5) {
                 throw usage("too many arguments");
             }
 
@@ -252,7 +261,8 @@ public final class NeoLinkTransparencyServer {
             int hookPort = args.length >= 2 ? parsePort(args[1], "hookPort") : DEFAULT_HOOK_PORT;
             int connectPort = args.length >= 3 ? parsePort(args[2], "connectPort") : DEFAULT_CONNECT_PORT;
             String localBindHost = args.length >= 4 ? args[3] : DEFAULT_LOCAL_BIND_HOST;
-            return new RuntimeArgs(remoteDomain, hookPort, connectPort, localBindHost);
+            String accessKey = args.length >= 5 && !args[4].isBlank() ? args[4] : ACCESS_KEY;
+            return new RuntimeArgs(remoteDomain, hookPort, connectPort, localBindHost, accessKey);
         }
     }
 

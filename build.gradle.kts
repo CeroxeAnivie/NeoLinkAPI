@@ -54,6 +54,26 @@ tasks.withType<ProcessResources>().configureEach {
     }
 }
 
+// Keep the launcher script machine-agnostic by resolving the effective runtime classpath from Gradle itself.
+val printTransparencyRuntimeClasspath by tasks.registering {
+    group = "verification"
+    description = "Prints the runtime classpath required by the transparency check launcher."
+    dependsOn(tasks.testClasses)
+    doLast {
+        val outputEntries = listOf(
+            sourceSets.main.get().output,
+            sourceSets.test.get().output
+        ).flatMap { it.files }
+
+        val runtimeEntries = sourceSets.test.get().runtimeClasspath.files
+        val classpathEntries = LinkedHashSet<File>()
+        classpathEntries.addAll(outputEntries)
+        classpathEntries.addAll(runtimeEntries)
+
+        println(classpathEntries.joinToString(File.pathSeparator) { it.absolutePath })
+    }
+}
+
 tasks.test {
     useJUnitPlatform()
     testLogging {
