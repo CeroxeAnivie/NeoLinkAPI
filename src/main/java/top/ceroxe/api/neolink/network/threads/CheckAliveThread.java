@@ -1,8 +1,8 @@
 package top.ceroxe.api.neolink.network.threads;
 
-import top.ceroxe.api.net.SecureSocket;
 import top.ceroxe.api.neolink.network.InternetOperator;
 import top.ceroxe.api.neolink.util.Debugger;
+import top.ceroxe.api.net.SecureSocket;
 
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -72,6 +72,22 @@ public final class CheckAliveThread implements Runnable {
         this.errorHandler = Objects.requireNonNull(errorHandler, "errorHandler");
         this.debugEnabled = debugEnabled;
         this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
+    }
+
+    private static int requirePositive(int value, String fieldName) {
+        if (value < 1) {
+            throw new IllegalArgumentException(fieldName + " must be greater than 0.");
+        }
+        return value;
+    }
+
+    private static void defaultDebugSink(String message, Throwable cause) {
+        if (message != null) {
+            Debugger.debugOperation(true, message);
+        }
+        if (cause instanceof Exception exception) {
+            Debugger.debugOperation(true, exception);
+        }
     }
 
     public Thread startThread() {
@@ -148,13 +164,6 @@ public final class CheckAliveThread implements Runnable {
         debug("Heartbeat loop exited.");
     }
 
-    private static int requirePositive(int value, String fieldName) {
-        if (value < 1) {
-            throw new IllegalArgumentException(fieldName + " must be greater than 0.");
-        }
-        return value;
-    }
-
     private void debug(String message) {
         if (!debugEnabled) {
             return;
@@ -174,15 +183,6 @@ public final class CheckAliveThread implements Runnable {
             debugSink.accept(message, cause);
         } catch (RuntimeException ignored) {
             // Debug callbacks are observational and must not disturb heartbeats.
-        }
-    }
-
-    private static void defaultDebugSink(String message, Throwable cause) {
-        if (message != null) {
-            Debugger.debugOperation(true, message);
-        }
-        if (cause instanceof Exception exception) {
-            Debugger.debugOperation(true, exception);
         }
     }
 }

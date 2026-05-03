@@ -39,48 +39,6 @@ public final class ProxyOperator {
         this.toLocal = parse(proxyToLocalServer, localHost);
     }
 
-    public Socket getHandledSocket(int socketType, int targetPort, int connectTimeoutMillis) throws IOException {
-        ProxySettings settings = settingsFor(socketType);
-        Socket socket = new Socket();
-        try {
-            if (!settings.hasProxy()) {
-                socket.connect(new InetSocketAddress(settings.targetHost(), targetPort), connectTimeoutMillis);
-                return socket;
-            }
-
-            socket.connect(new InetSocketAddress(settings.proxyHost(), settings.proxyPort()), connectTimeoutMillis);
-            socket.setSoTimeout(connectTimeoutMillis);
-            if (settings.proxyType() == Proxy.Type.SOCKS) {
-                connectViaSocks5(socket, settings, targetPort);
-            } else if (settings.proxyType() == Proxy.Type.HTTP) {
-                connectViaHttp(socket, settings, targetPort);
-            } else {
-                throw new IOException("Unsupported proxy type: " + settings.proxyType());
-            }
-            socket.setSoTimeout(0);
-            return socket;
-        } catch (IOException | RuntimeException e) {
-            try {
-                socket.close();
-            } catch (IOException ignored) {
-            }
-            throw e;
-        }
-    }
-
-    public SecureSocket getHandledSecureSocket(int socketType, int targetPort, int connectTimeoutMillis)
-            throws IOException {
-        return new SecureSocket(getHandledSocket(socketType, targetPort, connectTimeoutMillis));
-    }
-
-    public boolean hasProxy(int socketType) {
-        return settingsFor(socketType).hasProxy();
-    }
-
-    private ProxySettings settingsFor(int socketType) {
-        return socketType == TO_NEO ? toNeo : toLocal;
-    }
-
     private static ProxySettings parse(String proxyConfig, String targetHost) {
         if (proxyConfig == null || proxyConfig.isBlank()) {
             return ProxySettings.direct(targetHost);
@@ -346,6 +304,48 @@ public final class ProxyOperator {
 
     private static boolean isIPv6Literal(String host) {
         return host.contains(":");
+    }
+
+    public Socket getHandledSocket(int socketType, int targetPort, int connectTimeoutMillis) throws IOException {
+        ProxySettings settings = settingsFor(socketType);
+        Socket socket = new Socket();
+        try {
+            if (!settings.hasProxy()) {
+                socket.connect(new InetSocketAddress(settings.targetHost(), targetPort), connectTimeoutMillis);
+                return socket;
+            }
+
+            socket.connect(new InetSocketAddress(settings.proxyHost(), settings.proxyPort()), connectTimeoutMillis);
+            socket.setSoTimeout(connectTimeoutMillis);
+            if (settings.proxyType() == Proxy.Type.SOCKS) {
+                connectViaSocks5(socket, settings, targetPort);
+            } else if (settings.proxyType() == Proxy.Type.HTTP) {
+                connectViaHttp(socket, settings, targetPort);
+            } else {
+                throw new IOException("Unsupported proxy type: " + settings.proxyType());
+            }
+            socket.setSoTimeout(0);
+            return socket;
+        } catch (IOException | RuntimeException e) {
+            try {
+                socket.close();
+            } catch (IOException ignored) {
+            }
+            throw e;
+        }
+    }
+
+    public SecureSocket getHandledSecureSocket(int socketType, int targetPort, int connectTimeoutMillis)
+            throws IOException {
+        return new SecureSocket(getHandledSocket(socketType, targetPort, connectTimeoutMillis));
+    }
+
+    public boolean hasProxy(int socketType) {
+        return settingsFor(socketType).hasProxy();
+    }
+
+    private ProxySettings settingsFor(int socketType) {
+        return socketType == TO_NEO ? toNeo : toLocal;
     }
 
     private record HostPort(String host, int port) {

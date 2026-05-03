@@ -20,11 +20,11 @@ public final class NeoNode {
     /**
      * 创建一个不可变的 NKM 节点对象。
      *
-     * @param name 来自 NKM 的展示名
-     * @param realId 稳定的 NKM 节点标识；手工构造时可以为 {@code null}，但 {@link NodeFetcher} 需要它
-     * @param address NeoProxyServer 的域名或 IP
-     * @param iconSvg 来自 NKM 的可选 SVG 图标内容
-     * @param hookPort NeoProxyServer 控制端口
+     * @param name        来自 NKM 的展示名
+     * @param realId      稳定的 NKM 节点标识；手工构造时可以为 {@code null}，但 {@link NodeFetcher} 需要它
+     * @param address     NeoProxyServer 的域名或 IP
+     * @param iconSvg     来自 NKM 的可选 SVG 图标内容
+     * @param hookPort    NeoProxyServer 控制端口
      * @param connectPort NeoProxyServer 传输端口
      */
     public NeoNode(String name, String realId, String address, String iconSvg, int hookPort, int connectPort) {
@@ -36,13 +36,34 @@ public final class NeoNode {
         this.connectPort = requirePort(connectPort, "connectPort");
     }
 
+    private static String requireText(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " must not be blank.");
+        }
+        return value.trim();
+    }
+
+    private static String normalizeOptionalText(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private static int requirePort(int value, String fieldName) {
+        if (value < 1 || value > 65535) {
+            throw new IllegalArgumentException(fieldName + " must be between 1 and 65535.");
+        }
+        return value;
+    }
+
     /**
      * 将这个公共节点元数据转换为完整的隧道配置。
      *
      * <p>NKM 只提供公开的远端端点。访问密钥和本地下游端口属于调用方私有数据，因此
      * 这里要求在转换时一次性传入，而不是返回一个半成品配置让后续启动阶段再失败。</p>
      *
-     * @param key 所选 NeoProxyServer 节点的访问密钥
+     * @param key       所选 NeoProxyServer 节点的访问密钥
      * @param localPort 本地下游服务端口
      * @return 基于当前节点和调用方私有配置构造出的 NeoLink 配置
      * @throws IllegalArgumentException 当 {@code key} 为空白或 {@code localPort} 不在 1..65535 时抛出
@@ -106,26 +127,5 @@ public final class NeoNode {
                 + ", hookPort=" + hookPort
                 + ", connectPort=" + connectPort
                 + '}';
-    }
-
-    private static String requireText(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank.");
-        }
-        return value.trim();
-    }
-
-    private static String normalizeOptionalText(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
-    }
-
-    private static int requirePort(int value, String fieldName) {
-        if (value < 1 || value > 65535) {
-            throw new IllegalArgumentException(fieldName + " must be between 1 and 65535.");
-        }
-        return value;
     }
 }

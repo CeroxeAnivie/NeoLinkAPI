@@ -1,7 +1,7 @@
 package top.ceroxe.api.neolink.network.threads;
 
-import top.ceroxe.api.net.SecureSocket;
 import top.ceroxe.api.neolink.util.Debugger;
+import top.ceroxe.api.net.SecureSocket;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -14,22 +14,20 @@ import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 
-import static top.ceroxe.api.neolink.network.InternetOperator.close;
-
 /**
  * UDP 数据转发器。
- *
+ * <p>
  * 核心职责：
  * 1. 在本地服务和 Neo 服务器之间双向转发 UDP 数据
  * 2. 使用 ByteBuffer 实现高效的字节操作
  * 3. 通过复用实例缓冲区减少 GC 压力
- *
+ * <p>
  * 设计特点：
  * - 双向转发：支持 Neo -> 本地、本地 -> Neo 两种模式
  * - ByteBuffer 优化：使用堆上缓冲区提升 I/O 性能
  * - 缓冲区复用：每个实例使用独立缓冲区，避免频繁分配内存
  * - 优雅关闭：支持中断信号，确保资源正确释放
- *
+ * <p>
  * 性能优化：
  * - 使用 65535 字节缓冲区，支持最大 UDP 报文
  * - 通过 ByteBuffer 直接操作字节数组，减少拷贝开销
@@ -204,6 +202,39 @@ public class UDPTransformer implements Runnable {
         return null;
     }
 
+    private static void emitMalformedPacketDebug(
+            String message,
+            Throwable cause,
+            boolean debugEnabled,
+            BiConsumer<String, Throwable> debugSink
+    ) {
+        if (!debugEnabled) {
+            return;
+        }
+        try {
+            debugSink.accept(message, cause);
+        } catch (RuntimeException ignored) {
+            // 畸形包诊断只用于观测，不能干扰转发流程。
+        }
+    }
+
+    private static InetAddress resolveLocalAddress(String localHost) {
+        try {
+            return InetAddress.getByName(localHost);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Unable to resolve local UDP target host: " + localHost, e);
+        }
+    }
+
+    private static void defaultDebugSink(String message, Throwable cause) {
+        if (message != null) {
+            Debugger.debugOperation(true, message);
+        }
+        if (cause instanceof Exception exception) {
+            Debugger.debugOperation(true, exception);
+        }
+    }
+
     private void transferDataToNeoServer() {
         try {
             while (true) { // 用异常退出循环。
@@ -312,39 +343,6 @@ public class UDPTransformer implements Runnable {
             debugSink.accept(message, cause);
         } catch (RuntimeException ignored) {
             // Debug 回调只用于观测，不能干扰转发流程。
-        }
-    }
-
-    private static void emitMalformedPacketDebug(
-            String message,
-            Throwable cause,
-            boolean debugEnabled,
-            BiConsumer<String, Throwable> debugSink
-    ) {
-        if (!debugEnabled) {
-            return;
-        }
-        try {
-            debugSink.accept(message, cause);
-        } catch (RuntimeException ignored) {
-            // 畸形包诊断只用于观测，不能干扰转发流程。
-        }
-    }
-
-    private static InetAddress resolveLocalAddress(String localHost) {
-        try {
-            return InetAddress.getByName(localHost);
-        } catch (IOException e) {
-            throw new UncheckedIOException("Unable to resolve local UDP target host: " + localHost, e);
-        }
-    }
-
-    private static void defaultDebugSink(String message, Throwable cause) {
-        if (message != null) {
-            Debugger.debugOperation(true, message);
-        }
-        if (cause instanceof Exception exception) {
-            Debugger.debugOperation(true, exception);
         }
     }
 }

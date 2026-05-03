@@ -44,11 +44,11 @@ public final class NodeFetcher {
     /**
      * 拉取 NKM 节点，并使用稳定的 {@code realId} 作为 key。
      *
-     * @param url NKM 节点列表接口地址
+     * @param url           NKM 节点列表接口地址
      * @param timeoutMillis 连接和读取超时时间，单位毫秒
      * @return 以 NKM {@code realId} 为 key、保持插入顺序的 Map
      * @throws IllegalArgumentException 当 {@code url} 格式非法或超时时间不是正数时抛出
-     * @throws IOException 当 HTTP 状态码或 JSON 载荷无效时抛出
+     * @throws IOException              当 HTTP 状态码或 JSON 载荷无效时抛出
      */
     public static Map<String, NeoNode> getFromNKM(String url, int timeoutMillis) throws IOException {
         URI endpoint = parseEndpoint(url);

@@ -1,7 +1,7 @@
 package top.ceroxe.api.neolink.network;
 
-import top.ceroxe.api.net.SecureSocket;
 import top.ceroxe.api.neolink.util.Debugger;
+import top.ceroxe.api.net.SecureSocket;
 
 import java.io.Closeable;
 import java.net.Socket;

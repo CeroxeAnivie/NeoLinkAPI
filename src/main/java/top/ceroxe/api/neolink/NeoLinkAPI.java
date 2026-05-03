@@ -1,21 +1,14 @@
 package top.ceroxe.api.neolink;
 
 import top.ceroxe.api.OshiUtils;
-import top.ceroxe.api.net.SecureSocket;
-import top.ceroxe.api.neolink.exception.NoMoreNetworkFlowException;
-import top.ceroxe.api.neolink.exception.NoMorePortException;
-import top.ceroxe.api.neolink.exception.NoSuchKeyException;
-import top.ceroxe.api.neolink.exception.OutDatedKeyException;
-import top.ceroxe.api.neolink.exception.PortOccupiedException;
-import top.ceroxe.api.neolink.exception.UnRecognizedKeyException;
-import top.ceroxe.api.neolink.exception.UnSupportHostVersionException;
-import top.ceroxe.api.neolink.exception.UnsupportedVersionException;
+import top.ceroxe.api.neolink.exception.*;
 import top.ceroxe.api.neolink.network.InternetOperator;
 import top.ceroxe.api.neolink.network.ProxyOperator;
 import top.ceroxe.api.neolink.network.threads.CheckAliveThread;
 import top.ceroxe.api.neolink.network.threads.TCPTransformer;
 import top.ceroxe.api.neolink.network.threads.UDPTransformer;
 import top.ceroxe.api.neolink.util.Debugger;
+import top.ceroxe.api.net.SecureSocket;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -25,13 +18,7 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CancellationException;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
@@ -117,6 +104,266 @@ public final class NeoLinkAPI implements AutoCloseable {
     }
 
     /**
+     * 返回当前 API 包版本。
+     *
+     * @return 从 {@code api.properties} 解析出的版本号
+     */
+    public static String version() {
+        return VersionInfo.VERSION;
+    }
+
+    private static Exception classifyRuntimeTerminalFailure(String response) {
+        Exception startupFailure = classifyStartupHandshakeFailure(response);
+        if (startupFailure != null) {
+            return startupFailure;
+        }
+        if (equalsProtocolText(response, "exitNoFlow")) {
+            return new NoMoreNetworkFlowException(response);
+        }
+        return null;
+    }
+
+    private static String normalizeUpdateURL(String response) {
+        if (response == null) {
+            return null;
+        }
+
+        String normalized = response.trim();
+        if (normalized.isEmpty() || NO_UPDATE_URL_RESPONSE.equalsIgnoreCase(normalized)) {
+            return null;
+        }
+        return normalized;
+    }
+
+    private static String updateClientType() {
+        return OshiUtils.isWindows() ? WINDOWS_UPDATE_CLIENT_TYPE : DEFAULT_UPDATE_CLIENT_TYPE;
+    }
+
+    private static Exception classifyStartupHandshakeFailure(String response) {
+        if (response == null || response.isBlank()) {
+            return new IOException("NeoProxyServer returned an empty startup response.");
+        }
+        if (isUnsupportedVersionResponse(response)) {
+            return new UnSupportHostVersionException(response);
+        }
+        if (isNoMoreNetworkFlowResponse(response)) {
+            return new NoMoreNetworkFlowException(response);
+        }
+        if (isOutdatedKeyResponse(response)) {
+            return new OutDatedKeyException(response);
+        }
+        if (isUnrecognizedKeyResponse(response)) {
+            return new UnRecognizedKeyException(response);
+        }
+        if (isRemotePortOccupiedResponse(response)) {
+            return new PortOccupiedException(response);
+        }
+        if (isNoMorePortResponse(response)) {
+            return new NoMorePortException(response);
+        }
+        return null;
+    }
+
+    private static boolean isSuccessfulHandshakeResponse(String response) {
+        for (LanguageData languageData : LanguageData.all()) {
+            if (equalsProtocolText(response, languageData.connectionBuildUpSuccessfully)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isUnsupportedVersionResponse(String response) {
+        for (LanguageData languageData : LanguageData.all()) {
+            if (startsWithProtocolText(response, languageData.unsupportedVersionPrefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isNoMoreNetworkFlowResponse(String response) {
+        if (equalsProtocolText(response, "exitNoFlow")) {
+            return true;
+        }
+        for (LanguageData languageData : LanguageData.all()) {
+            if (equalsProtocolText(response, languageData.noNetworkFlowLeft)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isOutdatedKeyResponse(String response) {
+        for (LanguageData languageData : LanguageData.all()) {
+            if (isWrappedProtocolText(response, languageData.keyPrefix, languageData.keyOutdatedSuffix)
+                    || isWrappedProtocolText(response, languageData.keyAltPrefix, languageData.keyOutdatedSuffix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isUnrecognizedKeyResponse(String response) {
+        for (LanguageData languageData : LanguageData.all()) {
+            if (equalsProtocolText(response, languageData.accessDeniedForceExiting)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isRemotePortOccupiedResponse(String response) {
+        for (LanguageData languageData : LanguageData.all()) {
+            if (equalsProtocolText(response, languageData.remotePortOccupied)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isNoMorePortResponse(String response) {
+        for (LanguageData languageData : LanguageData.all()) {
+            if (equalsProtocolText(response, languageData.portAlreadyInUse)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean equalsProtocolText(String response, String expected) {
+        return normalizeProtocolText(response).equals(normalizeProtocolText(expected));
+    }
+
+    private static boolean startsWithProtocolText(String response, String expectedPrefix) {
+        return normalizeProtocolText(response).startsWith(normalizeProtocolText(expectedPrefix));
+    }
+
+    private static boolean isWrappedProtocolText(String response, String prefix, String suffix) {
+        String normalizedResponse = normalizeProtocolText(response);
+        return normalizedResponse.startsWith(normalizeProtocolText(prefix))
+                && normalizedResponse.endsWith(normalizeProtocolText(suffix));
+    }
+
+    private static String normalizeProtocolText(String response) {
+        return response == null ? "" : response.trim();
+    }
+
+    static String parseTunAddrMessage(String message) {
+        if (message == null || message.isBlank()) {
+            return null;
+        }
+        String fromEnglishMessage = extractBetween(message, EN_TUN_ADDR_PREFIX, EN_TUN_ADDR_SUFFIX);
+        if (fromEnglishMessage != null) {
+            return fromEnglishMessage;
+        }
+        return extractBetween(message, ZH_TUN_ADDR_PREFIX, ZH_TUN_ADDR_SUFFIX);
+    }
+
+    private static String extractBetween(String value, String prefix, String suffix) {
+        int start = value.indexOf(prefix);
+        if (start < 0) {
+            return null;
+        }
+        int addressStart = start + prefix.length();
+        int end = value.indexOf(suffix, addressStart);
+        if (end < 0) {
+            return null;
+        }
+        String address = value.substring(addressStart, end).trim();
+        return address.isEmpty() ? null : address;
+    }
+
+    private static IOException toIOException(String message, Exception cause) {
+        if (cause instanceof IOException ioException) {
+            return ioException;
+        }
+        return new IOException(message, cause);
+    }
+
+    private static int requirePositive(int value, String fieldName) {
+        if (value < 1) {
+            throw new IllegalArgumentException(fieldName + " must be greater than 0.");
+        }
+        return value;
+    }
+
+    private static InetSocketAddress parseRemoteAddress(String remoteAddress) {
+        if (remoteAddress == null || remoteAddress.isBlank()) {
+            return InetSocketAddress.createUnresolved(UNKNOWN_HOST, 0);
+        }
+
+        String value = remoteAddress.trim();
+        if (value.startsWith("/")) {
+            value = value.substring(1);
+        }
+
+        if (value.startsWith("[")) {
+            int closingBracket = value.indexOf(']');
+            if (closingBracket > 1) {
+                String host = value.substring(1, closingBracket);
+                int port = parsePortAfter(value, closingBracket + 1);
+                return InetSocketAddress.createUnresolved(host, port);
+            }
+        }
+
+        int lastColon = value.lastIndexOf(':');
+        if (lastColon > 0 && lastColon + 1 < value.length()) {
+            String host = value.substring(0, lastColon);
+            int port = parsePort(value.substring(lastColon + 1));
+            if (port >= 0) {
+                return InetSocketAddress.createUnresolved(host, port);
+            }
+        }
+        return InetSocketAddress.createUnresolved(value, 0);
+    }
+
+    private static int parsePortAfter(String value, int index) {
+        if (index >= value.length() || value.charAt(index) != ':' || index + 1 >= value.length()) {
+            return 0;
+        }
+        int port = parsePort(value.substring(index + 1));
+        return port >= 0 ? port : 0;
+    }
+
+    private static int parsePort(String value) {
+        try {
+            int port = Integer.parseInt(value);
+            return port >= 0 && port <= 65535 ? port : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private static void defaultDebugSink(String message, Throwable cause) {
+        if (message != null) {
+            Debugger.debugOperation(true, message);
+        }
+        if (cause instanceof Exception exception) {
+            Debugger.debugOperation(true, exception);
+        }
+    }
+
+    private static String maskClientInfo(String clientInfo) {
+        String[] parts = clientInfo.split(";", -1);
+        if (parts.length < 4) {
+            return clientInfo;
+        }
+        parts[2] = maskSecret(parts[2]);
+        return String.join(";", parts);
+    }
+
+    private static String maskSecret(String secret) {
+        if (secret == null || secret.isBlank()) {
+            return "";
+        }
+        if (secret.length() <= 4) {
+            return "****";
+        }
+        return secret.substring(0, 2) + "****" + secret.substring(secret.length() - 2);
+    }
+
+    /**
      * 建立控制连接、完成握手并阻塞运行到隧道停止。
      *
      * <p>该方法会先阻塞到握手成功或失败；握手成功后继续阻塞，直到其他线程调用
@@ -124,10 +371,10 @@ public final class NeoLinkAPI implements AutoCloseable {
      * 语言和 debug 等协议相关配置必须在调用本方法之前写入 {@link NeoLinkCfg}，
      * 因为它们会参与握手或转发线程初始化。</p>
      *
-     * @throws IOException 控制连接、传输连接或本地下游连接发生 I/O 错误
+     * @throws IOException                 控制连接、传输连接或本地下游连接发生 I/O 错误
      * @throws UnsupportedVersionException 服务端拒绝当前 API 版本
-     * @throws NoSuchKeyException 服务端拒绝访问密钥
-     * @throws NoMoreNetworkFlowException 服务端通知剩余流量耗尽
+     * @throws NoSuchKeyException          服务端拒绝访问密钥
+     * @throws NoMoreNetworkFlowException  服务端通知剩余流量耗尽
      */
     public void start()
             throws IOException, UnsupportedVersionException, NoSuchKeyException, NoMoreNetworkFlowException {
@@ -141,11 +388,11 @@ public final class NeoLinkAPI implements AutoCloseable {
      * 默认超时，避免“远端 NPS 连接策略”意外改变宿主应用的本地服务探测语义。</p>
      *
      * @param connectToNpsTimeoutMillis 连接 NeoProxyServer 控制端口和传输端口的超时时间，必须大于 0
-     * @throws IllegalArgumentException 超时时间小于 1 毫秒时抛出
-     * @throws IOException 控制连接、传输连接或本地下游连接发生 I/O 错误
+     * @throws IllegalArgumentException    超时时间小于 1 毫秒时抛出
+     * @throws IOException                 控制连接、传输连接或本地下游连接发生 I/O 错误
      * @throws UnsupportedVersionException 服务端拒绝当前 API 版本
-     * @throws NoSuchKeyException 服务端拒绝访问密钥
-     * @throws NoMoreNetworkFlowException 服务端通知剩余流量耗尽
+     * @throws NoSuchKeyException          服务端拒绝访问密钥
+     * @throws NoMoreNetworkFlowException  服务端通知剩余流量耗尽
      */
     public void start(int connectToNpsTimeoutMillis)
             throws IOException, UnsupportedVersionException, NoSuchKeyException, NoMoreNetworkFlowException {
@@ -369,6 +616,7 @@ public final class NeoLinkAPI implements AutoCloseable {
         this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
         return this;
     }
+
     /**
      * 设置转发连接建立时触发的回调。
      *
@@ -390,6 +638,7 @@ public final class NeoLinkAPI implements AutoCloseable {
         this.onDisconnect = Objects.requireNonNull(onDisconnect, "onDisconnect");
         return this;
     }
+
     public NeoLinkAPI setOnConnectNeoFailure(Runnable onConnectNeoFailure) {
         this.onConnectNeoFailure = Objects.requireNonNull(onConnectNeoFailure, "onConnectNeoFailure");
         return this;
@@ -441,31 +690,6 @@ public final class NeoLinkAPI implements AutoCloseable {
             activeCfg.setUDPEnabled(udpEnabled);
         }
         debug("Runtime protocol-switch command sent. flags=" + requestedFlags.asProtocolFlags());
-    }
-
-    /**
-     * 返回当前 API 包版本。
-     *
-     * @return 从 {@code api.properties} 解析出的版本号
-     */
-    public static String version() {
-        return VersionInfo.VERSION;
-    }
-
-    /**
-     * 转发连接使用的传输协议类型。
-     */
-    public enum TransportProtocol {
-        TCP,
-        UDP
-    }
-
-    /**
-     * 接收转发连接事件，协议类型由 NeoLinkAPI 解析后传入。
-     */
-    @FunctionalInterface
-    public interface ConnectionEventHandler {
-        void accept(TransportProtocol protocol, InetSocketAddress source, InetSocketAddress target);
     }
 
     private void runCore(long generation) throws Exception {
@@ -1236,17 +1460,6 @@ public final class NeoLinkAPI implements AutoCloseable {
                 + activeSwitch.requested().asProtocolFlags());
     }
 
-    private static Exception classifyRuntimeTerminalFailure(String response) {
-        Exception startupFailure = classifyStartupHandshakeFailure(response);
-        if (startupFailure != null) {
-            return startupFailure;
-        }
-        if (equalsProtocolText(response, "exitNoFlow")) {
-            return new NoMoreNetworkFlowException(response);
-        }
-        return null;
-    }
-
     private boolean shouldRequestUnsupportedVersionUpdate(String serverResponse) {
         try {
             return Boolean.TRUE.equals(unsupportedVersionDecision.apply(serverResponse));
@@ -1254,22 +1467,6 @@ public final class NeoLinkAPI implements AutoCloseable {
             debug(e);
             return false;
         }
-    }
-
-    private static String normalizeUpdateURL(String response) {
-        if (response == null) {
-            return null;
-        }
-
-        String normalized = response.trim();
-        if (normalized.isEmpty() || NO_UPDATE_URL_RESPONSE.equalsIgnoreCase(normalized)) {
-            return null;
-        }
-        return normalized;
-    }
-
-    private static String updateClientType() {
-        return OshiUtils.isWindows() ? WINDOWS_UPDATE_CLIENT_TYPE : DEFAULT_UPDATE_CLIENT_TYPE;
     }
 
     private void transitionTo(NeoLinkState newState) {
@@ -1292,202 +1489,6 @@ public final class NeoLinkAPI implements AutoCloseable {
             onStateChanged.accept(newState);
         } catch (RuntimeException e) {
             debug(e);
-        }
-    }
-
-    private static Exception classifyStartupHandshakeFailure(String response) {
-        if (response == null || response.isBlank()) {
-            return new IOException("NeoProxyServer returned an empty startup response.");
-        }
-        if (isUnsupportedVersionResponse(response)) {
-            return new UnSupportHostVersionException(response);
-        }
-        if (isNoMoreNetworkFlowResponse(response)) {
-            return new NoMoreNetworkFlowException(response);
-        }
-        if (isOutdatedKeyResponse(response)) {
-            return new OutDatedKeyException(response);
-        }
-        if (isUnrecognizedKeyResponse(response)) {
-            return new UnRecognizedKeyException(response);
-        }
-        if (isRemotePortOccupiedResponse(response)) {
-            return new PortOccupiedException(response);
-        }
-        if (isNoMorePortResponse(response)) {
-            return new NoMorePortException(response);
-        }
-        return null;
-    }
-
-    private static boolean isSuccessfulHandshakeResponse(String response) {
-        for (LanguageData languageData : LanguageData.all()) {
-            if (equalsProtocolText(response, languageData.connectionBuildUpSuccessfully)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean isUnsupportedVersionResponse(String response) {
-        for (LanguageData languageData : LanguageData.all()) {
-            if (startsWithProtocolText(response, languageData.unsupportedVersionPrefix)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean isNoMoreNetworkFlowResponse(String response) {
-        if (equalsProtocolText(response, "exitNoFlow")) {
-            return true;
-        }
-        for (LanguageData languageData : LanguageData.all()) {
-            if (equalsProtocolText(response, languageData.noNetworkFlowLeft)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean isOutdatedKeyResponse(String response) {
-        for (LanguageData languageData : LanguageData.all()) {
-            if (isWrappedProtocolText(response, languageData.keyPrefix, languageData.keyOutdatedSuffix)
-                    || isWrappedProtocolText(response, languageData.keyAltPrefix, languageData.keyOutdatedSuffix)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean isUnrecognizedKeyResponse(String response) {
-        for (LanguageData languageData : LanguageData.all()) {
-            if (equalsProtocolText(response, languageData.accessDeniedForceExiting)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean isRemotePortOccupiedResponse(String response) {
-        for (LanguageData languageData : LanguageData.all()) {
-            if (equalsProtocolText(response, languageData.remotePortOccupied)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean isNoMorePortResponse(String response) {
-        for (LanguageData languageData : LanguageData.all()) {
-            if (equalsProtocolText(response, languageData.portAlreadyInUse)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean equalsProtocolText(String response, String expected) {
-        return normalizeProtocolText(response).equals(normalizeProtocolText(expected));
-    }
-
-    private static boolean startsWithProtocolText(String response, String expectedPrefix) {
-        return normalizeProtocolText(response).startsWith(normalizeProtocolText(expectedPrefix));
-    }
-
-    private static boolean isWrappedProtocolText(String response, String prefix, String suffix) {
-        String normalizedResponse = normalizeProtocolText(response);
-        return normalizedResponse.startsWith(normalizeProtocolText(prefix))
-                && normalizedResponse.endsWith(normalizeProtocolText(suffix));
-    }
-
-    private static String normalizeProtocolText(String response) {
-        return response == null ? "" : response.trim();
-    }
-
-    static String parseTunAddrMessage(String message) {
-        if (message == null || message.isBlank()) {
-            return null;
-        }
-        String fromEnglishMessage = extractBetween(message, EN_TUN_ADDR_PREFIX, EN_TUN_ADDR_SUFFIX);
-        if (fromEnglishMessage != null) {
-            return fromEnglishMessage;
-        }
-        return extractBetween(message, ZH_TUN_ADDR_PREFIX, ZH_TUN_ADDR_SUFFIX);
-    }
-
-    private static String extractBetween(String value, String prefix, String suffix) {
-        int start = value.indexOf(prefix);
-        if (start < 0) {
-            return null;
-        }
-        int addressStart = start + prefix.length();
-        int end = value.indexOf(suffix, addressStart);
-        if (end < 0) {
-            return null;
-        }
-        String address = value.substring(addressStart, end).trim();
-        return address.isEmpty() ? null : address;
-    }
-
-    private static IOException toIOException(String message, Exception cause) {
-        if (cause instanceof IOException ioException) {
-            return ioException;
-        }
-        return new IOException(message, cause);
-    }
-
-    private static int requirePositive(int value, String fieldName) {
-        if (value < 1) {
-            throw new IllegalArgumentException(fieldName + " must be greater than 0.");
-        }
-        return value;
-    }
-
-    private static InetSocketAddress parseRemoteAddress(String remoteAddress) {
-        if (remoteAddress == null || remoteAddress.isBlank()) {
-            return InetSocketAddress.createUnresolved(UNKNOWN_HOST, 0);
-        }
-
-        String value = remoteAddress.trim();
-        if (value.startsWith("/")) {
-            value = value.substring(1);
-        }
-
-        if (value.startsWith("[")) {
-            int closingBracket = value.indexOf(']');
-            if (closingBracket > 1) {
-                String host = value.substring(1, closingBracket);
-                int port = parsePortAfter(value, closingBracket + 1);
-                return InetSocketAddress.createUnresolved(host, port);
-            }
-        }
-
-        int lastColon = value.lastIndexOf(':');
-        if (lastColon > 0 && lastColon + 1 < value.length()) {
-            String host = value.substring(0, lastColon);
-            int port = parsePort(value.substring(lastColon + 1));
-            if (port >= 0) {
-                return InetSocketAddress.createUnresolved(host, port);
-            }
-        }
-        return InetSocketAddress.createUnresolved(value, 0);
-    }
-
-    private static int parsePortAfter(String value, int index) {
-        if (index >= value.length() || value.charAt(index) != ':' || index + 1 >= value.length()) {
-            return 0;
-        }
-        int port = parsePort(value.substring(index + 1));
-        return port >= 0 ? port : 0;
-    }
-
-    private static int parsePort(String value) {
-        try {
-            int port = Integer.parseInt(value);
-            return port >= 0 && port <= 65535 ? port : -1;
-        } catch (NumberFormatException e) {
-            return -1;
         }
     }
 
@@ -1551,15 +1552,6 @@ public final class NeoLinkAPI implements AutoCloseable {
         }
     }
 
-    private static void defaultDebugSink(String message, Throwable cause) {
-        if (message != null) {
-            Debugger.debugOperation(true, message);
-        }
-        if (cause instanceof Exception exception) {
-            Debugger.debugOperation(true, exception);
-        }
-    }
-
     private String describeRuntimeConfig() {
         NeoLinkCfg activeCfg = runtimeCfg;
         return "remote=" + activeCfg.getRemoteDomainName()
@@ -1577,23 +1569,20 @@ public final class NeoLinkAPI implements AutoCloseable {
                 + ", connectToLocalTimeoutMs=" + DEFAULT_CONNECT_TIMEOUT_MILLIS;
     }
 
-    private static String maskClientInfo(String clientInfo) {
-        String[] parts = clientInfo.split(";", -1);
-        if (parts.length < 4) {
-            return clientInfo;
-        }
-        parts[2] = maskSecret(parts[2]);
-        return String.join(";", parts);
+    /**
+     * 转发连接使用的传输协议类型。
+     */
+    public enum TransportProtocol {
+        TCP,
+        UDP
     }
 
-    private static String maskSecret(String secret) {
-        if (secret == null || secret.isBlank()) {
-            return "";
-        }
-        if (secret.length() <= 4) {
-            return "****";
-        }
-        return secret.substring(0, 2) + "****" + secret.substring(secret.length() - 2);
+    /**
+     * 接收转发连接事件，协议类型由 NeoLinkAPI 解析后传入。
+     */
+    @FunctionalInterface
+    public interface ConnectionEventHandler {
+        void accept(TransportProtocol protocol, InetSocketAddress source, InetSocketAddress target);
     }
 
     private record ProtocolFlags(boolean tcpEnabled, boolean udpEnabled) {

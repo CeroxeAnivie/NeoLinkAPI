@@ -47,10 +47,10 @@ public final class NeoLinkCfg {
      * TCP/UDP 合法端口范围校验，避免错误配置延迟到网络调用阶段才暴露。</p>
      *
      * @param remoteDomainName NeoProxyServer 的域名或 IP
-     * @param hookPort 控制连接端口
-     * @param hostConnectPort TCP/UDP 数据传输连接端口
-     * @param key 访问密钥
-     * @param localPort 本地下游服务端口
+     * @param hookPort         控制连接端口
+     * @param hostConnectPort  TCP/UDP 数据传输连接端口
+     * @param key              访问密钥
+     * @param localPort        本地下游服务端口
      * @throws IllegalArgumentException 任一文本参数为空白，或端口不在 1 到 65535 时抛出
      */
     public NeoLinkCfg(String remoteDomainName, int hookPort, int hostConnectPort, String key, int localPort) {
@@ -79,6 +79,43 @@ public final class NeoLinkCfg {
             this.language = source.language;
             this.clientVersion = source.clientVersion;
         }
+    }
+
+    private static String requireText(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(fieldName + " must not be blank.");
+        }
+        return value.trim();
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private static int requirePort(int value, String fieldName) {
+        if (value < 1 || value > 65535) {
+            throw new IllegalArgumentException(fieldName + " must be between 1 and 65535.");
+        }
+        return value;
+    }
+
+    private static int requirePositive(int value, String fieldName) {
+        if (value < 1) {
+            throw new IllegalArgumentException(fieldName + " must be greater than 0.");
+        }
+        return value;
+    }
+
+    private static String normalizeLanguage(String value) {
+        String normalized = requireText(value, "language")
+                .toLowerCase()
+                .replace('-', '_');
+        return switch (normalized) {
+            case EN_US, "en_us", "english" -> EN_US;
+            case ZH_CH, "zh_ch", "zh_cn", "chinese" -> ZH_CH;
+            default ->
+                    throw new IllegalArgumentException("language must be either NeoLinkCfg.EN_US or NeoLinkCfg.ZH_CH.");
+        };
     }
 
     NeoLinkCfg copy() {
@@ -227,15 +264,6 @@ public final class NeoLinkCfg {
     }
 
     /**
-     * 清空连接本地下游服务时使用的代理。
-     *
-     * @return 当前配置对象，便于链式调用
-     */
-    public synchronized NeoLinkCfg setProxyIPToLocalServer() {
-        return setProxyIPToLocalServer(DEFAULT_PROXY_IP);
-    }
-
-    /**
      * 设置连接本地下游服务时使用的代理。
      *
      * <p>格式为 {@code socks->host:port}、{@code http->host:port}，
@@ -250,21 +278,21 @@ public final class NeoLinkCfg {
     }
 
     /**
+     * 清空连接本地下游服务时使用的代理。
+     *
+     * @return 当前配置对象，便于链式调用
+     */
+    public synchronized NeoLinkCfg setProxyIPToLocalServer() {
+        return setProxyIPToLocalServer(DEFAULT_PROXY_IP);
+    }
+
+    /**
      * 返回连接 NeoProxyServer 时使用的代理配置。
      *
      * @return 代理配置字符串，空字符串表示直连
      */
     public synchronized String getProxyIPToNeoServer() {
         return proxyIPToNeoServer;
-    }
-
-    /**
-     * 清空连接 NeoProxyServer 时使用的代理。
-     *
-     * @return 当前配置对象，便于链式调用
-     */
-    public synchronized NeoLinkCfg setProxyIPToNeoServer() {
-        return setProxyIPToNeoServer(DEFAULT_PROXY_IP);
     }
 
     /**
@@ -278,6 +306,15 @@ public final class NeoLinkCfg {
     public synchronized NeoLinkCfg setProxyIPToNeoServer(String proxyIPToNeoServer) {
         this.proxyIPToNeoServer = nullToEmpty(proxyIPToNeoServer);
         return this;
+    }
+
+    /**
+     * 清空连接 NeoProxyServer 时使用的代理。
+     *
+     * @return 当前配置对象，便于链式调用
+     */
+    public synchronized NeoLinkCfg setProxyIPToNeoServer() {
+        return setProxyIPToNeoServer(DEFAULT_PROXY_IP);
     }
 
     /**
@@ -353,15 +390,6 @@ public final class NeoLinkCfg {
     }
 
     /**
-     * 启用 Proxy Protocol v2 透传。
-     *
-     * @return 当前配置对象，便于链式调用
-     */
-    public synchronized NeoLinkCfg setPPV2Enabled() {
-        return setPPV2Enabled(true);
-    }
-
-    /**
      * 设置 Proxy Protocol v2 透传开关。
      *
      * <p>默认关闭是为了保护 SSH、RDP、Minecraft 等不理解 PPv2 的普通后端；
@@ -373,6 +401,15 @@ public final class NeoLinkCfg {
     public synchronized NeoLinkCfg setPPV2Enabled(boolean ppv2Enabled) {
         this.ppv2Enabled = ppv2Enabled;
         return this;
+    }
+
+    /**
+     * 启用 Proxy Protocol v2 透传。
+     *
+     * @return 当前配置对象，便于链式调用
+     */
+    public synchronized NeoLinkCfg setPPV2Enabled() {
+        return setPPV2Enabled(true);
     }
 
     /**
@@ -432,15 +469,6 @@ public final class NeoLinkCfg {
     }
 
     /**
-     * 启用详细英文调试日志。
-     *
-     * @return 当前配置对象，便于链式调用
-     */
-    public synchronized NeoLinkCfg setDebugMsg() {
-        return setDebugMsg(true);
-    }
-
-    /**
      * 设置详细英文调试日志开关。
      *
      * @param debugMsg 是否输出调试日志
@@ -451,39 +479,12 @@ public final class NeoLinkCfg {
         return this;
     }
 
-    private static String requireText(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(fieldName + " must not be blank.");
-        }
-        return value.trim();
-    }
-
-    private static String nullToEmpty(String value) {
-        return value == null ? "" : value.trim();
-    }
-
-    private static int requirePort(int value, String fieldName) {
-        if (value < 1 || value > 65535) {
-            throw new IllegalArgumentException(fieldName + " must be between 1 and 65535.");
-        }
-        return value;
-    }
-
-    private static int requirePositive(int value, String fieldName) {
-        if (value < 1) {
-            throw new IllegalArgumentException(fieldName + " must be greater than 0.");
-        }
-        return value;
-    }
-
-    private static String normalizeLanguage(String value) {
-        String normalized = requireText(value, "language")
-                .toLowerCase()
-                .replace('-', '_');
-        return switch (normalized) {
-            case EN_US, "en_us", "english" -> EN_US;
-            case ZH_CH, "zh_ch", "zh_cn", "chinese" -> ZH_CH;
-            default -> throw new IllegalArgumentException("language must be either NeoLinkCfg.EN_US or NeoLinkCfg.ZH_CH.");
-        };
+    /**
+     * 启用详细英文调试日志。
+     *
+     * @return 当前配置对象，便于链式调用
+     */
+    public synchronized NeoLinkCfg setDebugMsg() {
+        return setDebugMsg(true);
     }
 }

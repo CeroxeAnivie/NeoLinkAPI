@@ -29,9 +29,10 @@ bin/
 .DS_Store
 
 # 运行产物
-logs/
+/logs/
 /config.cfg
 eula.txt
+/run-transparency-check.cmd
 
 # 临时文件
 all_code.txt

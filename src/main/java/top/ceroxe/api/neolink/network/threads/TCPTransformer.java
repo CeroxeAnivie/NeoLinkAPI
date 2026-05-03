@@ -1,29 +1,29 @@
 package top.ceroxe.api.neolink.network.threads;
 
-import top.ceroxe.api.net.SecureSocket;
 import top.ceroxe.api.neolink.util.Debugger;
+import top.ceroxe.api.net.SecureSocket;
 
 import java.io.ByteArrayOutputStream;
 import java.net.Socket;
 import java.util.Objects;
 import java.util.function.BiConsumer;
 
-import static top.ceroxe.api.neolink.network.InternetOperator.*;
+import static top.ceroxe.api.neolink.network.InternetOperator.shutdownOutput;
 
 /**
  * TCP 数据转发器。
- *
+ * <p>
  * 核心职责：
  * 1. 在本地服务和 Neo 服务器之间双向转发 TCP 数据
  * 2. 支持 Proxy Protocol v2 的剥离或透传
  * 3. 通过复用实例缓冲区减少 GC 压力
- *
+ * <p>
  * 设计特点：
  * - 双向转发：同时支持 Neo -> 本地 和 本地 -> Neo 两种模式
  * - 缓冲区复用：每个实例使用独立缓冲区，避免频繁分配内存
  * - Proxy Protocol v2 支持：可按配置剥离或透传真实客户端 IP
  * - 优雅关闭：支持中断信号，确保资源被正确释放
- *
+ * <p>
  * 性能优化：
  * - 使用 65535 字节缓冲区，尽量吃满网络吞吐
  * - 缓冲区在实例级复用，减少 GC 压力
@@ -108,6 +108,15 @@ public class TCPTransformer implements Runnable {
         this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
     }
 
+    private static void defaultDebugSink(String message, Throwable cause) {
+        if (message != null) {
+            Debugger.debugOperation(true, message);
+        }
+        if (cause instanceof Exception exception) {
+            Debugger.debugOperation(true, exception);
+        }
+    }
+
     /**
      * 将本地数据转发到 Neo 服务器（Local -> Neo）。
      */
@@ -182,6 +191,45 @@ public class TCPTransformer implements Runnable {
     private int declaredProxyProtocolV2HeaderLength(byte[] data) {
         int payloadLength = ((data[14] & 0xFF) << 8) | (data[15] & 0xFF);
         return PPV2_MIN_HEADER_LENGTH + payloadLength;
+    }
+
+    @Override
+    public void run() {
+        try {
+            debug("TCP transformer started. mode=" + (mode == MODE_NEO_TO_LOCAL ? "NEO_TO_LOCAL" : "LOCAL_TO_NEO")
+                    + ", ppv2Enabled=" + enableProxyProtocol);
+            if (mode == MODE_NEO_TO_LOCAL) {
+                transferDataToLocalServer();
+            } else {
+                transferDataToNeoServer();
+            }
+        } catch (Exception e) {
+            debug(e);
+        } finally {
+            debug("TCP transformer finished.");
+        }
+    }
+
+    private void debug(String message) {
+        if (!debugEnabled) {
+            return;
+        }
+        emitDebug(message, null);
+    }
+
+    private void debug(Exception e) {
+        if (!debugEnabled || e == null) {
+            return;
+        }
+        emitDebug(null, e);
+    }
+
+    private void emitDebug(String message, Throwable cause) {
+        try {
+            debugSink.accept(message, cause);
+        } catch (RuntimeException ignored) {
+            // Debug callbacks are observational and must not disturb forwarding.
+        }
     }
 
     private final class ProxyProtocolStripper {
@@ -259,54 +307,6 @@ public class TCPTransformer implements Runnable {
                 }
             }
             return buffered.length > 0;
-        }
-    }
-
-    @Override
-    public void run() {
-        try {
-            debug("TCP transformer started. mode=" + (mode == MODE_NEO_TO_LOCAL ? "NEO_TO_LOCAL" : "LOCAL_TO_NEO")
-                    + ", ppv2Enabled=" + enableProxyProtocol);
-            if (mode == MODE_NEO_TO_LOCAL) {
-                transferDataToLocalServer();
-            } else {
-                transferDataToNeoServer();
-            }
-        } catch (Exception e) {
-            debug(e);
-        } finally {
-            debug("TCP transformer finished.");
-        }
-    }
-
-    private void debug(String message) {
-        if (!debugEnabled) {
-            return;
-        }
-        emitDebug(message, null);
-    }
-
-    private void debug(Exception e) {
-        if (!debugEnabled || e == null) {
-            return;
-        }
-        emitDebug(null, e);
-    }
-
-    private void emitDebug(String message, Throwable cause) {
-        try {
-            debugSink.accept(message, cause);
-        } catch (RuntimeException ignored) {
-            // Debug callbacks are observational and must not disturb forwarding.
-        }
-    }
-
-    private static void defaultDebugSink(String message, Throwable cause) {
-        if (message != null) {
-            Debugger.debugOperation(true, message);
-        }
-        if (cause instanceof Exception exception) {
-            Debugger.debugOperation(true, exception);
         }
     }
 }

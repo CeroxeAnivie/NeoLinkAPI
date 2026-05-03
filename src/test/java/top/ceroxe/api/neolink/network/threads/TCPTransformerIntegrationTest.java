@@ -1,11 +1,15 @@
 package top.ceroxe.api.neolink.network.threads;
 
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import top.ceroxe.api.net.SecureServerSocket;
 import top.ceroxe.api.net.SecureSocket;
-import org.junit.jupiter.api.*;
 
 import java.io.IOException;
-import java.net.*;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
@@ -16,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * TCPTransformer 集成测试
- * 
+ * <p>
  * 使用真实的 SecureServerSocket 和 SecureSocket 测试数据传输
  */
 @DisplayName("TCPTransformer 集成测试")
@@ -28,16 +32,11 @@ class TCPTransformerIntegrationTest {
     private static SecureServerSocket secureServerSocket;
     private static volatile boolean serverRunning = false;
 
-    @FunctionalInterface
-    private interface SecureSocketHandler {
-        void handle(SecureSocket socket) throws Exception;
-    }
-
     @BeforeAll
     static void setUpServer() throws IOException {
         secureServerSocket = new SecureServerSocket(TEST_PORT);
         serverRunning = true;
-        
+
         serverThread = Thread.ofVirtual().start(() -> {
             while (serverRunning && !secureServerSocket.isClosed()) {
                 try {
@@ -100,14 +99,30 @@ class TCPTransformerIntegrationTest {
         }
     }
 
+    private static byte[] proxyProtocolV2Header(int payloadLength) {
+        byte[] header = new byte[16 + payloadLength];
+        byte[] signature = new byte[]{
+                (byte) 0x0D, (byte) 0x0A, (byte) 0x0D, (byte) 0x0A,
+                (byte) 0x00, (byte) 0x0D, (byte) 0x0A, (byte) 0x51,
+                (byte) 0x55, (byte) 0x49, (byte) 0x54, (byte) 0x0A
+        };
+        System.arraycopy(signature, 0, header, 0, signature.length);
+        header[12] = 0x20;
+        header[13] = 0x00;
+        header[14] = (byte) ((payloadLength >>> 8) & 0xFF);
+        header[15] = (byte) (payloadLength & 0xFF);
+        Arrays.fill(header, 16, header.length, (byte) 0x7F);
+        return header;
+    }
+
     @Test
     @DisplayName("SecureSocket 应能连接到 SecureServerSocket")
     void testSecureSocketConnection() throws IOException {
         SecureSocket client = new SecureSocket("localhost", TEST_PORT);
-        
+
         assertTrue(client.isConnected());
         assertFalse(client.isClosed());
-        
+
         client.close();
         assertTrue(client.isClosed());
     }
@@ -116,12 +131,12 @@ class TCPTransformerIntegrationTest {
     @DisplayName("SecureSocket 应能发送和接收字符串")
     void testSecureSocketSendReceiveString() throws IOException {
         SecureSocket client = new SecureSocket("localhost", TEST_PORT);
-        
+
         client.sendStr("Hello");
         String response = client.receiveStr(2000);
-        
+
         assertEquals("ECHO: Hello", response);
-        
+
         client.close();
     }
 
@@ -172,7 +187,7 @@ class TCPTransformerIntegrationTest {
     @DisplayName("SecureSocket 应能正确关闭")
     void testSecureSocketClose() throws IOException {
         SecureSocket client = new SecureSocket("localhost", TEST_PORT);
-        
+
         assertFalse(client.isClosed());
         client.close();
         assertTrue(client.isClosed());
@@ -182,9 +197,9 @@ class TCPTransformerIntegrationTest {
     @DisplayName("SecureSocket shutdownInput 应正常工作")
     void testSecureSocketShutdownInput() throws IOException {
         SecureSocket client = new SecureSocket("localhost", TEST_PORT);
-        
+
         assertDoesNotThrow(() -> client.shutdownInput());
-        
+
         client.close();
     }
 
@@ -192,9 +207,9 @@ class TCPTransformerIntegrationTest {
     @DisplayName("SecureSocket shutdownOutput 应正常工作")
     void testSecureSocketShutdownOutput() throws IOException {
         SecureSocket client = new SecureSocket("localhost", TEST_PORT);
-        
+
         assertDoesNotThrow(() -> client.shutdownOutput());
-        
+
         client.close();
     }
 
@@ -202,9 +217,9 @@ class TCPTransformerIntegrationTest {
     @DisplayName("SecureSocket getPort 应返回正确的端口")
     void testSecureSocketGetPort() throws IOException {
         SecureSocket client = new SecureSocket("localhost", TEST_PORT);
-        
+
         assertEquals(TEST_PORT, client.getPort());
-        
+
         client.close();
     }
 
@@ -212,9 +227,9 @@ class TCPTransformerIntegrationTest {
     @DisplayName("SecureSocket getInetAddress 应返回正确的地址")
     void testSecureSocketGetInetAddress() throws IOException {
         SecureSocket client = new SecureSocket("localhost", TEST_PORT);
-        
+
         assertNotNull(client.getInetAddress());
-        
+
         client.close();
     }
 
@@ -224,7 +239,7 @@ class TCPTransformerIntegrationTest {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> receivedData = new AtomicReference<>();
         AtomicReference<Throwable> serverError = new AtomicReference<>();
-        
+
         try (SecureServerSocket server = new SecureServerSocket(0);
              ServerSocket localServer = new ServerSocket(LOCAL_SERVER_PORT)) {
             Thread secureServerThread = startOneShotServer(server, serverError, socket -> {
@@ -245,18 +260,18 @@ class TCPTransformerIntegrationTest {
                     e.printStackTrace();
                 }
             });
-            
+
             SecureSocket secureClient = new SecureSocket("localhost", server.getLocalPort());
             Socket localSocket = new Socket("localhost", LOCAL_SERVER_PORT);
-            
+
             TCPTransformer transformer = new TCPTransformer(secureClient, localSocket, false);
             Thread transformerThread = Thread.ofVirtual().start(transformer);
 
             latch.await(5, TimeUnit.SECONDS);
-            
+
             assertNotNull(receivedData.get());
             assertTrue(receivedData.get().contains("TEST_DATA"));
-            
+
             secureClient.close();
             localSocket.close();
             transformerThread.interrupt();
@@ -270,11 +285,11 @@ class TCPTransformerIntegrationTest {
     @DisplayName("TCPTransformer 应能处理 Proxy Protocol v2 头")
     void testTCPTransformerProxyProtocolV2() throws Exception {
         byte[] ppv2Header = proxyProtocolV2Header(0);
-        
+
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<byte[]> receivedData = new AtomicReference<>();
         AtomicReference<Throwable> serverError = new AtomicReference<>();
-        
+
         try (SecureServerSocket server = new SecureServerSocket(0);
              ServerSocket localServer = new ServerSocket(LOCAL_SERVER_PORT + 1)) {
             Thread secureServerThread = startOneShotServer(server, serverError, socket -> {
@@ -296,18 +311,18 @@ class TCPTransformerIntegrationTest {
                     e.printStackTrace();
                 }
             });
-            
+
             SecureSocket secureClient = new SecureSocket("localhost", server.getLocalPort());
             Socket localSocket = new Socket("localhost", LOCAL_SERVER_PORT + 1);
-            
+
             TCPTransformer transformer = new TCPTransformer(secureClient, localSocket, true);
             Thread transformerThread = Thread.ofVirtual().start(transformer);
 
             latch.await(5, TimeUnit.SECONDS);
-            
+
             assertNotNull(receivedData.get());
             assertArrayEquals(ppv2Header, receivedData.get());
-            
+
             secureClient.close();
             localSocket.close();
             transformerThread.interrupt();
@@ -408,19 +423,8 @@ class TCPTransformerIntegrationTest {
         }
     }
 
-    private static byte[] proxyProtocolV2Header(int payloadLength) {
-        byte[] header = new byte[16 + payloadLength];
-        byte[] signature = new byte[]{
-                (byte) 0x0D, (byte) 0x0A, (byte) 0x0D, (byte) 0x0A,
-                (byte) 0x00, (byte) 0x0D, (byte) 0x0A, (byte) 0x51,
-                (byte) 0x55, (byte) 0x49, (byte) 0x54, (byte) 0x0A
-        };
-        System.arraycopy(signature, 0, header, 0, signature.length);
-        header[12] = 0x20;
-        header[13] = 0x00;
-        header[14] = (byte) ((payloadLength >>> 8) & 0xFF);
-        header[15] = (byte) (payloadLength & 0xFF);
-        Arrays.fill(header, 16, header.length, (byte) 0x7F);
-        return header;
+    @FunctionalInterface
+    private interface SecureSocketHandler {
+        void handle(SecureSocket socket) throws Exception;
     }
 }

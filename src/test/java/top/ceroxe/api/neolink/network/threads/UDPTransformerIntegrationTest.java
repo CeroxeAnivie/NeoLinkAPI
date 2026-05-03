@@ -1,24 +1,25 @@
 package top.ceroxe.api.neolink.network.threads;
 
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
 import top.ceroxe.api.net.SecureServerSocket;
 import top.ceroxe.api.net.SecureSocket;
-import org.junit.jupiter.api.*;
 
 import java.io.IOException;
-import java.net.*;
+import java.lang.reflect.Modifier;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
-import java.lang.reflect.Modifier;
-import java.util.Arrays;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * UDPTransformer 集成测试
- * 
+ * <p>
  * 使用真实的 SecureServerSocket 和 SecureSocket 测试 UDP 数据传输
  */
 @DisplayName("UDPTransformer 集成测试")
@@ -33,7 +34,7 @@ class UDPTransformerIntegrationTest {
     static void setUpServer() throws IOException {
         secureServerSocket = new SecureServerSocket(TEST_PORT);
         serverRunning = true;
-        
+
         serverThread = Thread.ofVirtual().start(() -> {
             while (serverRunning && !secureServerSocket.isClosed()) {
                 try {
@@ -64,13 +65,13 @@ class UDPTransformerIntegrationTest {
             while (!socket.isClosed()) {
                 byte[] data = socket.receiveBytes(1000);
                 if (data == null) break;
-                
+
                 DatagramPacket packet = UDPTransformer.deserializeToDatagramPacket(data);
                 if (packet != null) {
                     byte[] responseData = serializeDatagramPacket(
-                        packet.getData(),
-                        packet.getAddress(),
-                        packet.getPort()
+                            packet.getData(),
+                            packet.getAddress(),
+                            packet.getPort()
                     );
                     socket.sendBytes(responseData);
                 }
@@ -88,7 +89,7 @@ class UDPTransformerIntegrationTest {
         byte[] ipBytes = address.getAddress();
         int ipLength = ipBytes.length;
         int totalLen = 4 + 4 + 4 + ipLength + 2 + data.length;
-        
+
         ByteBuffer buffer = ByteBuffer.allocate(totalLen);
         buffer.order(ByteOrder.BIG_ENDIAN);
         buffer.putInt(0xDEADBEEF);
@@ -97,7 +98,7 @@ class UDPTransformerIntegrationTest {
         buffer.put(ipBytes);
         buffer.putShort((short) port);
         buffer.put(data);
-        
+
         return buffer.array();
     }
 
@@ -107,11 +108,11 @@ class UDPTransformerIntegrationTest {
         byte[] testData = "Hello UDP".getBytes();
         InetAddress testAddress = InetAddress.getByName("127.0.0.1");
         int testPort = 12345;
-        
+
         byte[] serialized = serializeDatagramPacket(testData, testAddress, testPort);
-        
+
         DatagramPacket packet = UDPTransformer.deserializeToDatagramPacket(serialized);
-        
+
         assertNotNull(packet);
         assertEquals(testPort, packet.getPort());
         assertArrayEquals(testData, packet.getData());
@@ -123,7 +124,7 @@ class UDPTransformerIntegrationTest {
         ByteBuffer buffer = ByteBuffer.allocate(20);
         buffer.order(ByteOrder.BIG_ENDIAN);
         buffer.putInt(0xBADBADBA);
-        
+
         assertNull(UDPTransformer.deserializeToDatagramPacket(buffer.array()));
     }
 
@@ -133,11 +134,11 @@ class UDPTransformerIntegrationTest {
         byte[] testData = "IPv6 Test".getBytes();
         InetAddress testAddress = InetAddress.getByName("::1");
         int testPort = 54321;
-        
+
         byte[] serialized = serializeDatagramPacket(testData, testAddress, testPort);
-        
+
         DatagramPacket packet = UDPTransformer.deserializeToDatagramPacket(serialized);
-        
+
         assertNotNull(packet);
         assertEquals(testPort, packet.getPort());
         assertArrayEquals(testData, packet.getData());
@@ -182,11 +183,11 @@ class UDPTransformerIntegrationTest {
     @DisplayName("UDPTransformer 构造函数应正确初始化 MODE_NEO_TO_LOCAL 模式")
     void testConstructorNeoToLocalMode() throws Exception {
         var constructor = UDPTransformer.class.getDeclaredConstructor(
-            SecureSocket.class, DatagramSocket.class);
+                SecureSocket.class, DatagramSocket.class);
         constructor.setAccessible(true);
-        
+
         UDPTransformer transformer = constructor.newInstance(null, null);
-        
+
         var modeField = UDPTransformer.class.getDeclaredField("mode");
         modeField.setAccessible(true);
         int mode = modeField.getInt(transformer);
@@ -197,11 +198,11 @@ class UDPTransformerIntegrationTest {
     @DisplayName("UDPTransformer 构造函数应正确初始化 MODE_LOCAL_TO_NEO 模式")
     void testConstructorLocalToNeoMode() throws Exception {
         var constructor = UDPTransformer.class.getDeclaredConstructor(
-            DatagramSocket.class, SecureSocket.class);
+                DatagramSocket.class, SecureSocket.class);
         constructor.setAccessible(true);
-        
+
         UDPTransformer transformer = constructor.newInstance(null, null);
-        
+
         var modeField = UDPTransformer.class.getDeclaredField("mode");
         modeField.setAccessible(true);
         int mode = modeField.getInt(transformer);
@@ -212,11 +213,11 @@ class UDPTransformerIntegrationTest {
     @DisplayName("UDPTransformer run 方法在 null socket 时应安全结束")
     void testRunWithNullSockets() throws Exception {
         var constructor = UDPTransformer.class.getDeclaredConstructor(
-            SecureSocket.class, DatagramSocket.class);
+                SecureSocket.class, DatagramSocket.class);
         constructor.setAccessible(true);
-        
+
         UDPTransformer transformer = constructor.newInstance(null, null);
-        
+
         assertDoesNotThrow(() -> transformer.run());
     }
 
@@ -225,23 +226,23 @@ class UDPTransformerIntegrationTest {
     void testUDPTransformerDataTransfer() throws Exception {
         int localUdpPort = 45681;
         DatagramSocket localUdpSocket = new DatagramSocket(localUdpPort);
-        
+
         SecureSocket secureClient = new SecureSocket("localhost", TEST_PORT);
-        
+
         UDPTransformer transformer = new UDPTransformer(secureClient, localUdpSocket);
         Thread transformerThread = Thread.ofVirtual().start(transformer);
-        
+
         byte[] testData = "UDP_TEST_DATA".getBytes();
         byte[] serializedData = serializeDatagramPacket(
-            testData, 
-            InetAddress.getByName("localhost"), 
-            localUdpPort
+                testData,
+                InetAddress.getByName("localhost"),
+                localUdpPort
         );
-        
+
         assertDoesNotThrow(() -> secureClient.sendBytes(serializedData));
-        
+
         Thread.sleep(100);
-        
+
         secureClient.close();
         localUdpSocket.close();
         transformerThread.interrupt();
@@ -251,17 +252,17 @@ class UDPTransformerIntegrationTest {
     @DisplayName("UDPTransformer 缓冲区应正确初始化")
     void testBufferInitialization() throws Exception {
         var constructor = UDPTransformer.class.getDeclaredConstructor(
-            SecureSocket.class, DatagramSocket.class);
+                SecureSocket.class, DatagramSocket.class);
         constructor.setAccessible(true);
-        
+
         UDPTransformer transformer = constructor.newInstance(null, null);
-        
+
         var receiveBufferField = UDPTransformer.class.getDeclaredField("receiveBuffer");
         receiveBufferField.setAccessible(true);
         byte[] receiveBuffer = (byte[]) receiveBufferField.get(transformer);
         assertNotNull(receiveBuffer);
         assertEquals(65535, receiveBuffer.length);
-        
+
         var serializationBufferField = UDPTransformer.class.getDeclaredField("serializationBuffer");
         serializationBufferField.setAccessible(true);
         ByteBuffer serializationBuffer = (ByteBuffer) serializationBufferField.get(transformer);

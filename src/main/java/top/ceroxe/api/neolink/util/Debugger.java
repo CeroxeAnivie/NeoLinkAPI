@@ -12,12 +12,12 @@ public final class Debugger {
     private Debugger() {
     }
 
-    public static void setEnabled(boolean enabled) {
-        Debugger.enabled = enabled;
-    }
-
     public static boolean isEnabled() {
         return enabled;
+    }
+
+    public static void setEnabled(boolean enabled) {
+        Debugger.enabled = enabled;
     }
 
     /**

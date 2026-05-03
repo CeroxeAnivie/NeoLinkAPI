@@ -3,37 +3,92 @@ package top.ceroxe.api.neolink;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import top.ceroxe.api.OshiUtils;
+import top.ceroxe.api.neolink.exception.*;
 import top.ceroxe.api.net.SecureServerSocket;
 import top.ceroxe.api.net.SecureSocket;
-import top.ceroxe.api.neolink.exception.NoMoreNetworkFlowException;
-import top.ceroxe.api.neolink.exception.NoMorePortException;
-import top.ceroxe.api.neolink.exception.OutDatedKeyException;
-import top.ceroxe.api.neolink.exception.PortOccupiedException;
-import top.ceroxe.api.neolink.exception.UnRecognizedKeyException;
-import top.ceroxe.api.neolink.exception.UnsupportedVersionException;
 
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("NeoLinkAPI lifecycle")
 class NeoLinkAPILifecycleTest {
+    private static String expectedUpdateType() {
+        return OshiUtils.isWindows() ? "exe" : "jar";
+    }
+
+    private static <T extends Throwable> void assertStartupResponseThrows(
+            String serverResponse,
+            Class<T> expectedType
+    ) throws Exception {
+        AtomicReference<Throwable> serverError = new AtomicReference<>();
+
+        try (SecureServerSocket server = new SecureServerSocket(0)) {
+            Thread serverThread = Thread.ofVirtual().start(() -> {
+                try (SecureSocket socket = server.accept()) {
+                    assertNotNull(socket.receiveStr(2000));
+                    socket.sendStr(serverResponse);
+                    Thread.sleep(100);
+                } catch (Throwable e) {
+                    serverError.compareAndSet(null, e);
+                }
+            });
+
+            NeoLinkCfg cfg = new NeoLinkCfg("localhost", server.getLocalPort(), server.getLocalPort(), "key", 25565)
+                    .setTCPEnabled(false)
+                    .setUDPEnabled(false);
+            NeoLinkAPI neoLink = new NeoLinkAPI(cfg);
+
+            assertThrows(expectedType, neoLink::start);
+
+            serverThread.join(3000);
+            if (serverError.get() != null) {
+                fail("Startup rejection test server failed", serverError.get());
+            }
+        }
+    }
+
+    private static CompletableFuture<Void> startAsync(NeoLinkAPI neoLink) {
+        return startAsync(neoLink, null);
+    }
+
+    private static CompletableFuture<Void> startAsync(NeoLinkAPI neoLink, Integer connectToNpsTimeoutMillis) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        Thread.ofVirtual().start(() -> {
+            try {
+                if (connectToNpsTimeoutMillis == null) {
+                    neoLink.start();
+                } else {
+                    neoLink.start(connectToNpsTimeoutMillis);
+                }
+                future.complete(null);
+            } catch (Throwable e) {
+                future.completeExceptionally(e);
+            }
+        });
+        return future;
+    }
+
+    private static void awaitRunning(NeoLinkAPI neoLink) throws InterruptedException {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
+        while (System.nanoTime() < deadline) {
+            if (neoLink.isActive() && neoLink.getState() == NeoLinkState.RUNNING) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        fail("NeoLinkAPI did not enter RUNNING. state=" + neoLink.getState());
+    }
+
+    private static void assertStartCompleted(CompletableFuture<Void> startFuture) throws Exception {
+        startFuture.get(3, TimeUnit.SECONDS);
+    }
+
     @Test
     @DisplayName("close 后同一个 NeoLinkAPI 实例应允许重新 start")
     void closeAllowsRestartingSameInstance() throws Exception {
@@ -805,76 +860,5 @@ class NeoLinkAPILifecycleTest {
                 "This port is already in use. Please try with a different node.",
                 NoMorePortException.class
         );
-    }
-
-    private static String expectedUpdateType() {
-        return OshiUtils.isWindows() ? "exe" : "jar";
-    }
-
-    private static <T extends Throwable> void assertStartupResponseThrows(
-            String serverResponse,
-            Class<T> expectedType
-    ) throws Exception {
-        AtomicReference<Throwable> serverError = new AtomicReference<>();
-
-        try (SecureServerSocket server = new SecureServerSocket(0)) {
-            Thread serverThread = Thread.ofVirtual().start(() -> {
-                try (SecureSocket socket = server.accept()) {
-                    assertNotNull(socket.receiveStr(2000));
-                    socket.sendStr(serverResponse);
-                    Thread.sleep(100);
-                } catch (Throwable e) {
-                    serverError.compareAndSet(null, e);
-                }
-            });
-
-            NeoLinkCfg cfg = new NeoLinkCfg("localhost", server.getLocalPort(), server.getLocalPort(), "key", 25565)
-                    .setTCPEnabled(false)
-                    .setUDPEnabled(false);
-            NeoLinkAPI neoLink = new NeoLinkAPI(cfg);
-
-            assertThrows(expectedType, neoLink::start);
-
-            serverThread.join(3000);
-            if (serverError.get() != null) {
-                fail("Startup rejection test server failed", serverError.get());
-            }
-        }
-    }
-
-    private static CompletableFuture<Void> startAsync(NeoLinkAPI neoLink) {
-        return startAsync(neoLink, null);
-    }
-
-    private static CompletableFuture<Void> startAsync(NeoLinkAPI neoLink, Integer connectToNpsTimeoutMillis) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
-        Thread.ofVirtual().start(() -> {
-            try {
-                if (connectToNpsTimeoutMillis == null) {
-                    neoLink.start();
-                } else {
-                    neoLink.start(connectToNpsTimeoutMillis);
-                }
-                future.complete(null);
-            } catch (Throwable e) {
-                future.completeExceptionally(e);
-            }
-        });
-        return future;
-    }
-
-    private static void awaitRunning(NeoLinkAPI neoLink) throws InterruptedException {
-        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
-        while (System.nanoTime() < deadline) {
-            if (neoLink.isActive() && neoLink.getState() == NeoLinkState.RUNNING) {
-                return;
-            }
-            Thread.sleep(10);
-        }
-        fail("NeoLinkAPI did not enter RUNNING. state=" + neoLink.getState());
-    }
-
-    private static void assertStartCompleted(CompletableFuture<Void> startFuture) throws Exception {
-        startFuture.get(3, TimeUnit.SECONDS);
     }
 }

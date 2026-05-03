@@ -11,13 +11,7 @@ import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketException;
-import java.nio.charset.StandardCharsets;
+import java.net.*;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
@@ -232,6 +226,35 @@ public final class APITransparencyServer {
         echoRuntime.close();
     }
 
+    private static String requireText(String value, String fieldName) {
+        if (value == null || value.isBlank()) {
+            throw usage(fieldName + " must not be blank");
+        }
+        return value.trim();
+    }
+
+    private static int parsePort(String rawValue, String fieldName) {
+        try {
+            int port = Integer.parseInt(requireText(rawValue, fieldName));
+            validatePort(port, fieldName);
+            return port;
+        } catch (NumberFormatException e) {
+            throw usage(fieldName + " must be an integer in 1..65535");
+        }
+    }
+
+    private static void validatePort(int port, String fieldName) {
+        if (port < 1 || port > 65_535) {
+            throw usage(fieldName + " must be in 1..65535");
+        }
+    }
+
+    private static IllegalArgumentException usage(String reason) {
+        return new IllegalArgumentException(reason + System.lineSeparator()
+                + "用法: APITransparencyServer [remoteDomain] [hookPort] [connectPort] [accessKey] [localPort] [localBindHost]" + System.lineSeparator()
+                + "示例: APITransparencyServer p.ceroxe.top 44801 44802 YOUR_KEY 7777 127.0.0.1");
+    }
+
     private record EchoRuntime(ServerSocket tcpServer, DatagramSocket udpServer) implements AutoCloseable {
         private EchoRuntime {
             Objects.requireNonNull(tcpServer, "tcpServer");
@@ -280,7 +303,8 @@ public final class APITransparencyServer {
         }
     }
 
-    private record RuntimeArgs(String remoteDomain, int hookPort, int connectPort, String accessKey, int localPort, String localBindHost) {
+    private record RuntimeArgs(String remoteDomain, int hookPort, int connectPort, String accessKey, int localPort,
+                               String localBindHost) {
         private RuntimeArgs {
             remoteDomain = requireText(remoteDomain, "remoteDomain");
             accessKey = requireText(accessKey, "accessKey");
@@ -303,34 +327,5 @@ public final class APITransparencyServer {
             String localBindHost = args.length >= 6 ? args[5] : DEFAULT_LOCAL_BIND_HOST;
             return new RuntimeArgs(remoteDomain, hookPort, connectPort, accessKey, localPort, localBindHost);
         }
-    }
-
-    private static String requireText(String value, String fieldName) {
-        if (value == null || value.isBlank()) {
-            throw usage(fieldName + " must not be blank");
-        }
-        return value.trim();
-    }
-
-    private static int parsePort(String rawValue, String fieldName) {
-        try {
-            int port = Integer.parseInt(requireText(rawValue, fieldName));
-            validatePort(port, fieldName);
-            return port;
-        } catch (NumberFormatException e) {
-            throw usage(fieldName + " must be an integer in 1..65535");
-        }
-    }
-
-    private static void validatePort(int port, String fieldName) {
-        if (port < 1 || port > 65_535) {
-            throw usage(fieldName + " must be in 1..65535");
-        }
-    }
-
-    private static IllegalArgumentException usage(String reason) {
-        return new IllegalArgumentException(reason + System.lineSeparator()
-                + "用法: APITransparencyServer [remoteDomain] [hookPort] [connectPort] [accessKey] [localPort] [localBindHost]" + System.lineSeparator()
-                + "示例: APITransparencyServer p.ceroxe.top 44801 44802 YOUR_KEY 7777 127.0.0.1");
     }
 }

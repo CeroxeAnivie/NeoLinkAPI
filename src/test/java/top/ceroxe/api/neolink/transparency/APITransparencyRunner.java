@@ -43,7 +43,14 @@ public final class APITransparencyRunner {
         }
     }
 
-    private record RuntimeArgs(String remoteDomain, int hookPort, int connectPort, String accessKey, int localPort, String localBindHost) {
+    private static IllegalArgumentException usage(String reason) {
+        return new IllegalArgumentException(reason + System.lineSeparator()
+                + "用法: APITransparencyRunner [remoteDomain] [hookPort] [connectPort] [accessKey] [localPort] [localBindHost]" + System.lineSeparator()
+                + "示例: APITransparencyRunner p.ceroxe.top 44801 44802 YOUR_KEY 7777 127.0.0.1");
+    }
+
+    private record RuntimeArgs(String remoteDomain, int hookPort, int connectPort, String accessKey, int localPort,
+                               String localBindHost) {
         private static RuntimeArgs parse(String[] args) {
             if (args.length > 6) {
                 throw usage("too many arguments");
@@ -87,11 +94,5 @@ public final class APITransparencyRunner {
                 throw usage(fieldName + " must be an integer in 1..65535");
             }
         }
-    }
-
-    private static IllegalArgumentException usage(String reason) {
-        return new IllegalArgumentException(reason + System.lineSeparator()
-                + "用法: APITransparencyRunner [remoteDomain] [hookPort] [connectPort] [accessKey] [localPort] [localBindHost]" + System.lineSeparator()
-                + "示例: APITransparencyRunner p.ceroxe.top 44801 44802 YOUR_KEY 7777 127.0.0.1");
     }
 }

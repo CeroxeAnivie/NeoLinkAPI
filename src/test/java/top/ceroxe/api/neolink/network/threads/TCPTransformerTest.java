@@ -14,57 +14,10 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.fail;
+import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("TCPTransformer behavior")
 class TCPTransformerTest {
-    @Test
-    @DisplayName("run tolerates null sockets")
-    void runWithNullSocketsDoesNotThrow() {
-        TCPTransformer neoToLocal = new TCPTransformer((SecureSocket) null, (Socket) null, false);
-        TCPTransformer localToNeo = new TCPTransformer((Socket) null, (SecureSocket) null, false);
-
-        assertDoesNotThrow(neoToLocal::run);
-        assertDoesNotThrow(localToNeo::run);
-    }
-
-    @Test
-    @DisplayName("Proxy Protocol v2 header is stripped when disabled")
-    void stripsProxyProtocolHeaderWhenDisabled() throws Exception {
-        byte[] payload = "REAL_PAYLOAD".getBytes(StandardCharsets.UTF_8);
-        byte[] frame = concat(proxyProtocolV2Header(0), payload);
-
-        byte[] received = forwardNeoToLocal(frame, false);
-
-        assertArrayEquals(payload, received);
-    }
-
-    @Test
-    @DisplayName("Proxy Protocol v2 header is forwarded when enabled")
-    void forwardsProxyProtocolHeaderWhenEnabled() throws Exception {
-        byte[] header = proxyProtocolV2Header(0);
-        byte[] payload = "REAL_PAYLOAD".getBytes(StandardCharsets.UTF_8);
-        byte[] frame = concat(header, payload);
-
-        byte[] received = forwardNeoToLocal(frame, true);
-
-        assertArrayEquals(frame, received);
-    }
-
-    @Test
-    @DisplayName("Incomplete Proxy Protocol v2 header is dropped when disabled")
-    void dropsIncompleteProxyProtocolHeaderWhenDisabled() throws Exception {
-        byte[] incompleteHeader = Arrays.copyOf(proxyProtocolV2Header(12), 15);
-
-        byte[] received = forwardNeoToLocal(incompleteHeader, false);
-
-        assertEquals(0, received.length);
-    }
-
     private static byte[] forwardNeoToLocal(byte[] frame, boolean enableProxyProtocol) throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<byte[]> received = new AtomicReference<>(new byte[0]);
@@ -134,5 +87,48 @@ class TCPTransformerTest {
         byte[] merged = Arrays.copyOf(first, first.length + second.length);
         System.arraycopy(second, 0, merged, first.length, second.length);
         return merged;
+    }
+
+    @Test
+    @DisplayName("run tolerates null sockets")
+    void runWithNullSocketsDoesNotThrow() {
+        TCPTransformer neoToLocal = new TCPTransformer((SecureSocket) null, (Socket) null, false);
+        TCPTransformer localToNeo = new TCPTransformer((Socket) null, (SecureSocket) null, false);
+
+        assertDoesNotThrow(neoToLocal::run);
+        assertDoesNotThrow(localToNeo::run);
+    }
+
+    @Test
+    @DisplayName("Proxy Protocol v2 header is stripped when disabled")
+    void stripsProxyProtocolHeaderWhenDisabled() throws Exception {
+        byte[] payload = "REAL_PAYLOAD".getBytes(StandardCharsets.UTF_8);
+        byte[] frame = concat(proxyProtocolV2Header(0), payload);
+
+        byte[] received = forwardNeoToLocal(frame, false);
+
+        assertArrayEquals(payload, received);
+    }
+
+    @Test
+    @DisplayName("Proxy Protocol v2 header is forwarded when enabled")
+    void forwardsProxyProtocolHeaderWhenEnabled() throws Exception {
+        byte[] header = proxyProtocolV2Header(0);
+        byte[] payload = "REAL_PAYLOAD".getBytes(StandardCharsets.UTF_8);
+        byte[] frame = concat(header, payload);
+
+        byte[] received = forwardNeoToLocal(frame, true);
+
+        assertArrayEquals(frame, received);
+    }
+
+    @Test
+    @DisplayName("Incomplete Proxy Protocol v2 header is dropped when disabled")
+    void dropsIncompleteProxyProtocolHeaderWhenDisabled() throws Exception {
+        byte[] incompleteHeader = Arrays.copyOf(proxyProtocolV2Header(12), 15);
+
+        byte[] received = forwardNeoToLocal(incompleteHeader, false);
+
+        assertEquals(0, received.length);
     }
 }

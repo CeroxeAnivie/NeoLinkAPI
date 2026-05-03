@@ -12,15 +12,16 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("UDPTransformer behavior")
 class UDPTransformerTest {
+    private static byte[] invokeSerialize(UDPTransformer transformer, DatagramPacket packet) throws Exception {
+        var method = UDPTransformer.class.getDeclaredMethod("serializeDatagramPacket", DatagramPacket.class);
+        method.setAccessible(true);
+        return (byte[]) method.invoke(transformer, packet);
+    }
+
     @Test
     @DisplayName("IPv4 packets serialize and deserialize consistently")
     void serializeAndDeserializeIpv4Packet() throws Exception {
@@ -105,11 +106,5 @@ class UDPTransformerTest {
 
         assertDoesNotThrow(neoToLocal::run);
         assertDoesNotThrow(localToNeo::run);
-    }
-
-    private static byte[] invokeSerialize(UDPTransformer transformer, DatagramPacket packet) throws Exception {
-        var method = UDPTransformer.class.getDeclaredMethod("serializeDatagramPacket", DatagramPacket.class);
-        method.setAccessible(true);
-        return (byte[]) method.invoke(transformer, packet);
     }
 }
