@@ -123,7 +123,7 @@ export class NeoLinkAPI
 | `setOnError(handler: (message: string, cause: unknown) => void)` | 运行期错误回调。 |
 | `setOnServerMessage(handler: (message: string) => void)` | 服务端普通消息回调。 |
 | `setUnsupportedVersionDecision(handler: (response: string) => boolean \| Promise<boolean>)` | 版本不兼容时是否请求更新地址。默认返回 `true`。 |
-| `setDebugSink(handler: DebugSink)` | 实例级调试事件接收器。 |
+| `setDebugSink(handler: (message: string \| null, cause?: unknown) => void)` | 实例级调试事件接收器。 |
 | `setOnConnect(handler: ConnectionEventHandler)` | 转发连接建立时触发。 |
 | `setOnDisconnect(handler: ConnectionEventHandler)` | 转发连接关闭时触发。 |
 | `setOnConnectNeoFailure(handler: () => void)` | 数据通道连接服务端失败时触发。 |
