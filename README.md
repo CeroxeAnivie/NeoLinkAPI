@@ -185,3 +185,18 @@ void main();
 | 离线测试 Java + Node.js | `npm run test:all:offline` |
 
 Java 命令会从根目录直接调用 `packages\java\gradlew.bat`，不需要手动 `cd packages\java`。
+
+如果你更习惯直接进入 Java 模块目录，下面这些命令与根目录脚本是等价的：
+
+| 执行位置 | 目标 | 命令 | 作用 |
+| --- | --- | --- | --- |
+| 仓库根目录 | 构建 Java 库 | `npm run build:java` | 调用 `packages/java/gradlew.bat build`，生成 Java 库产物 |
+| 仓库根目录 | 测试 Java 库 | `npm run test:java` | 运行 Java 单元测试与集成测试 |
+| 仓库根目录 | 离线构建 Java 库 | `npm run build:java:offline` | 只使用本地 Gradle 缓存构建 Java 库 |
+| 仓库根目录 | 离线测试 Java 库 | `npm run test:java:offline` | 只使用本地 Gradle 缓存运行 Java 测试 |
+| `packages\java` | 构建 Java 库 | `.\gradlew.bat build` | 直接在 Java 模块内部构建 |
+| `packages\java` | 测试 Java 库 | `.\gradlew.bat test` | 直接在 Java 模块内部测试 |
+| `packages\java` | 离线构建 Java 库 | `.\gradlew.bat build --offline` | 不访问网络，直接使用本地 Gradle 缓存构建 |
+| `packages\java` | 离线测试 Java 库 | `.\gradlew.bat test --offline` | 不访问网络，直接使用本地 Gradle 缓存测试 |
+| `packages\java` | 清理构建产物 | `.\gradlew.bat clean` | 删除 Java 模块的 `build/` 输出目录 |
+| `packages\java` | 生成透明性检查运行时类路径 | `.\gradlew.bat printTransparencyRuntimeClasspath` | 给透明性检查脚本输出完整测试运行时 classpath |

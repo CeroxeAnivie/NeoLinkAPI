@@ -190,3 +190,41 @@ api.setOnDisconnect((protocol, source, target) ->
 - 不要在最小调用里重复写默认值，除非你想明确覆盖配置。
 - `getTunAddr()` 会等待服务端下发地址。
 - 运行中切换协议用 `updateRuntimeProtocolFlags(...)`，启动前默认 TCP/UDP 已启用。
+
+## 构建与测试命令
+
+Java 模块有两种常用入口：在仓库根目录通过 npm 脚本调用，或者直接进入 `packages/java` 用 Gradle Wrapper 调用。两种写法作用相同，区别只是你当前站在哪个目录。
+
+### 在仓库根目录执行
+
+| 目标 | 命令 | 作用 |
+| --- | --- | --- |
+| 构建 Java 库 | `npm run build:java` | 从根目录调用 Java 模块的 `gradlew.bat build` |
+| 测试 Java 库 | `npm run test:java` | 从根目录调用 Java 模块的 `gradlew.bat test` |
+| 离线构建 Java 库 | `npm run build:java:offline` | 使用本地 Gradle 缓存构建，不访问网络 |
+| 离线测试 Java 库 | `npm run test:java:offline` | 使用本地 Gradle 缓存测试，不访问网络 |
+| 构建整个 Monorepo | `npm run build:all` | 先构建 Java，再构建 Node.js |
+| 测试整个 Monorepo | `npm run test:all` | 先跑 Java 测试，再跑 Node.js 测试 |
+| 离线构建整个 Monorepo | `npm run build:all:offline` | Java 离线构建后，再构建 Node.js |
+| 离线测试整个 Monorepo | `npm run test:all:offline` | Java 离线测试后，再测试 Node.js |
+
+### 进入 `packages/java` 后执行
+
+先进入目录：
+
+```cmd
+cd packages\java
+```
+
+然后根据目标执行：
+
+| 目标 | 命令 | 作用 |
+| --- | --- | --- |
+| 构建 Java 库 | `.\gradlew.bat build` | 编译源码、处理资源、打包产物 |
+| 测试 Java 库 | `.\gradlew.bat test` | 编译测试代码并运行测试 |
+| 离线构建 Java 库 | `.\gradlew.bat build --offline` | 只使用本地 Gradle 缓存构建 |
+| 离线测试 Java 库 | `.\gradlew.bat test --offline` | 只使用本地 Gradle 缓存测试 |
+| 清理构建目录 | `.\gradlew.bat clean` | 删除 `build/` 输出目录 |
+| 生成透明性检查 classpath | `.\gradlew.bat printTransparencyRuntimeClasspath` | 输出透明性检查脚本所需的完整运行时 classpath |
+
+如果你的目的只是开发或发布 Java 模块，推荐直接用上面这组 Java 命令，不需要先构建 Node.js。
