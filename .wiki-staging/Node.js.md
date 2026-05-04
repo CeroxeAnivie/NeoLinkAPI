@@ -74,20 +74,28 @@ const cfg = new NeoLinkCfg('nps.example.com', 44801, 44802, 'your-access-key', 2
 ```ts
 import { NeoLinkAPI, NodeFetcher } from 'neolinkapi';
 
-const nodes = await NodeFetcher.getFromNKM('https://example.com/nkm.json');
-const first = nodes.values().next();
-if (first.done) {
-  throw new Error('nkm 里没有可用节点');
+async function main(): Promise<void> {
+  const nodes = await NodeFetcher.getFromNKM('https://example.com/nkm.json');
+  const first = nodes.values().next();
+  if (first.done) {
+    throw new Error('nkm 里没有可用节点');
+  }
+
+  const cfg = first.value.toCfg('your-access-key', 25565);
+  const api = new NeoLinkAPI(cfg);
+  process.once('SIGINT', () => api.close());
+  await api.start();
 }
 
-const cfg = first.value.toCfg('your-access-key', 25565);
-const api = new NeoLinkAPI(cfg);
+void main();
 ```
 
 `NodeFetcher.getFromNKM(url)` 默认超时是 `1000` 毫秒，也可以传入自定义超时：
 
 ```ts
-const nodes = await NodeFetcher.getFromNKM('https://example.com/nkm.json', 1500);
+async function loadNodes() {
+  return NodeFetcher.getFromNKM('https://example.com/nkm.json', 1500);
+}
 ```
 
 ## 常用回调
