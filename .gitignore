@@ -46,6 +46,7 @@ eula.txt
 *.iml
 *.ipr
 .idea/workspace.xml
+.idea/misc.xml
 .idea/shelf/
 .idea/httpRequests/
 .idea/queries/

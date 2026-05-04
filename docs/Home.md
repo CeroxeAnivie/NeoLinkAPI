@@ -5,7 +5,9 @@ NeoLinkAPI 同时提供 Java 和 Node.js 两套实现。这个 Wiki 的目标是
 ## 入口
 
 - [Java 开发指南](Java)
+- [Java API 参考](Java-API-Reference)
 - [Node.js 开发指南](Node.js)
+- [Node.js API 参考](Node.js-API-Reference)
 
 ## 先理解这两点
 
