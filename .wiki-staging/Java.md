@@ -1,20 +1,8 @@
-# Java
+# Java 开发指南
 
-NeoLinkAPI 的 Java 版面向嵌入式接入场景。它把配置、生命周期、节点发现、错误映射统一封装成一个可关闭实例，适合在业务服务里直接持有并管理。
+Java 版适合直接嵌入业务服务。最常见的用法不是研究全部方法，而是先把配置、启动、关闭这三件事做对。
 
-## 环境与依赖
-
-- Java 21
-- Maven 坐标：`top.ceroxe.api:neolinkapi:7.1.6`
-- Gradle：
-
-```kotlin
-dependencies {
-    implementation("top.ceroxe.api:neolinkapi:7.1.6")
-}
-```
-
-## 最小示例
+## 最小可用示例
 
 ```java
 import top.ceroxe.api.neolink.NeoLinkAPI;
@@ -32,8 +20,8 @@ public final class Main {
 
         try {
             api.start();
-            System.out.println(api.getState());
-            System.out.println(api.getTunAddr());
+            System.out.println("state = " + api.getState());
+            System.out.println("tunAddr = " + api.getTunAddr());
         } finally {
             api.close();
         }
@@ -41,114 +29,116 @@ public final class Main {
 }
 ```
 
-## 核心对象
+## 最常见的三种调用
 
-### `NeoLinkCfg`
+### 1. 直连本地服务
 
-这是启动前的配置对象，构造函数强制要求最小必填项：
+只要服务端地址、本地端口和访问密钥确定，直接构造配置就行。
 
 ```java
-new NeoLinkCfg(remoteDomainName, hookPort, hostConnectPort, key, localPort)
+NeoLinkCfg cfg = new NeoLinkCfg("nps.example.com", 44801, 44802, "your-access-key", 25565)
+        .setLocalDomainName("localhost")
+        .setTCPEnabled(true)
+        .setUDPEnabled(true);
 ```
 
-常用字段：
+### 2. 从 NKM 节点启动
 
-- `remoteDomainName`：NeoProxy 服务端域名或 IP
-- `hookPort`：控制连接端口
-- `hostConnectPort`：数据转发连接端口
-- `localDomainName`：本地服务地址，默认 `localhost`
-- `localPort`：本地服务端口
-- `key`：访问密钥
-- `proxyIPToLocalServer` / `proxyIPToNeoServer`：代理链路，空字符串表示直连
-- `heartBeatPacketDelay`：心跳间隔，默认 `1000`
-- `tcpEnabled` / `udpEnabled`：是否允许 TCP / UDP 转发
-- `ppv2Enabled`：TCP 链路是否启用 Proxy Protocol v2
-- `language`：协议握手语言，支持 `NeoLinkCfg.EN_US` 与 `NeoLinkCfg.ZH_CH`
-- `clientVersion`：发送给服务端的客户端版本号
-- `debugMsg`：是否输出调试信息
-
-这个类是可变的，但所有 setter 都会做输入校验，避免把非法配置推迟到启动阶段才暴露。
-
-这些 setter 的重载也属于公开 API，常见的空参数写法如下：
+如果你手上是节点列表，先取节点，再转成配置。
 
 ```java
-cfg.setProxyIPToLocalServer();
-cfg.setProxyIPToNeoServer();
-cfg.setPPV2Enabled();
-cfg.setDebugMsg();
+import java.util.Map;
+import top.ceroxe.api.neolink.NeoNode;
+import top.ceroxe.api.neolink.NodeFetcher;
+import top.ceroxe.api.neolink.NeoLinkCfg;
+
+Map<String, NeoNode> nodes = NodeFetcher.getFromNKM("https://example.com/nkm.json");
+NeoNode node = nodes.values().stream().findFirst().orElseThrow();
+NeoLinkCfg cfg = node.toCfg("your-access-key", 25565);
+NeoLinkAPI api = new NeoLinkAPI(cfg);
 ```
 
-如果你想显式写出参数，语义也完全一致：
+### 3. 监听状态和连接事件
+
+如果你只想知道“什么时候连上、什么时候断开”，只装这些回调就够了。
 
 ```java
-cfg.setProxyIPToLocalServer("socks->127.0.0.1:7890");
-cfg.setProxyIPToNeoServer("http->127.0.0.1:7890");
-cfg.setPPV2Enabled(true);
-cfg.setDebugMsg(true);
-```
-
-### `NeoLinkAPI`
-
-这是唯一的运行期控制入口。
-
-主要方法：
-
-- `NeoLinkAPI(NeoLinkCfg cfg)`：绑定启动配置
-- `static String version()`：返回库版本
-- `start()` / `start(int connectToNpsTimeoutMillis)`：启动隧道
-- `isActive()`：判断实例是否正在运行
-- `getTunAddr()`：获取服务端下发的隧道地址
-- `getHookSocket()`：获取控制 socket
-- `getUpdateURL()`：获取版本不兼容时的更新地址
-- `getState()`：获取生命周期状态
-- `updateRuntimeProtocolFlags(boolean tcpEnabled, boolean udpEnabled)`：运行中切换协议转发开关
-- `close()`：关闭并释放资源
-
-使用示例：
-
-```java
-System.out.println("NeoLinkAPI.version() = " + NeoLinkAPI.version());
-```
-
-回调设置：
-
-- `setOnStateChanged(...)`
-- `setOnError(...)`
-- `setOnServerMessage(...)`
-- `setUnsupportedVersionDecision(...)`
-- `setDebugSink(...)`
-- `setOnConnect(...)`
-- `setOnDisconnect(...)`
-- `setOnConnectNeoFailure(...)`
-- `setOnConnectLocalFailure(...)`
-
-行为边界：
-
-- `start()` 会先复制一份 `NeoLinkCfg` 作为运行期配置，避免启动后修改原对象造成半生效状态。
-- `updateRuntimeProtocolFlags(...)` 只应该在 active 状态下调用。
-- `getTunAddr()` 在地址尚未就绪时会等待，不是纯同步快照读取。
-- `setUnsupportedVersionDecision(...)` 的回调只负责决定是否继续请求更新地址，不应该在里面做阻塞型业务逻辑。
-
-公开的协议相关嵌套类型也要一起理解：
-
-- `TransportProtocol`：只有 `TCP` 和 `UDP`
-- `ConnectionEventHandler`：参数依次是 `protocol`、`source`、`target`
-
-使用示例：
-
-```java
+api.setOnStateChanged(state -> System.out.println("state = " + state));
+api.setOnError((message, cause) -> {
+    System.err.println(message);
+    if (cause != null) {
+        cause.printStackTrace();
+    }
+});
 api.setOnConnect((protocol, source, target) ->
         System.out.println("connect " + protocol + " " + source + " -> " + target));
 api.setOnDisconnect((protocol, source, target) ->
         System.out.println("disconnect " + protocol + " " + source + " -> " + target));
 ```
 
-### `NeoNode`
+## 你最常会用到的对象
 
-`NeoNode` 表示 NKM 下发的公共节点元数据。
+### `NeoLinkCfg`
+
+构造函数：
 
 ```java
-NeoNode node = new NeoNode(name, realId, address, iconSvg, hookPort, connectPort);
+new NeoLinkCfg(remoteDomainName, hookPort, hostConnectPort, key, localPort)
+```
+
+最常用的 setter：
+
+- `setLocalDomainName(String)`
+- `setTCPEnabled(boolean)`
+- `setUDPEnabled(boolean)`
+- `setProxyIPToLocalServer(String)` / `setProxyIPToLocalServer()`
+- `setProxyIPToNeoServer(String)` / `setProxyIPToNeoServer()`
+- `setPPV2Enabled(boolean)` / `setPPV2Enabled()`
+- `setDebugMsg(boolean)` / `setDebugMsg()`
+
+常见规则：
+
+- 空字符串会被当成非法值处理。
+- 代理地址传空表示直连。
+- 端口范围必须是 `1..65535`。
+- `language` 只接受英文或中文的标准值和常见别名。
+
+### `NeoLinkAPI`
+
+最常用的方法：
+
+- `start()`
+- `start(int connectToNpsTimeoutMillis)`
+- `isActive()`
+- `getTunAddr()`
+- `getState()`
+- `getHookSocket()`
+- `getUpdateURL()`
+- `updateRuntimeProtocolFlags(boolean tcpEnabled, boolean udpEnabled)`
+- `close()`
+
+最常用的回调：
+
+- `setOnStateChanged(...)`
+- `setOnError(...)`
+- `setOnServerMessage(...)`
+- `setUnsupportedVersionDecision(...)`
+- `setOnConnect(...)`
+- `setOnDisconnect(...)`
+
+建议的调用顺序：
+
+1. 先组装 `NeoLinkCfg`。
+2. 再创建 `NeoLinkAPI`。
+3. 启动前挂好回调。
+4. 用 `try/finally` 确保关闭。
+
+### `NeoNode`
+
+节点对象主要用于“拿到节点后直接转配置”。
+
+```java
+NeoNode node = new NeoNode("demo", "demo-id", "nps.example.com", null, 44801, 44802);
 NeoLinkCfg cfg = node.toCfg("your-access-key", 25565);
 ```
 
@@ -165,60 +155,24 @@ NeoLinkCfg cfg = node.toCfg("your-access-key", 25565);
 - `hashCode()`
 - `toString()`
 
-使用示例：
-
-```java
-NeoNode node = new NeoNode("demo", "demo-id", "nps.example.com", null, 44801, 44802);
-System.out.println(node.equals(node));
-System.out.println(node.toString());
-```
-
 ### `NodeFetcher`
 
-`NodeFetcher` 负责从 NKM 节点列表拉取并解析节点。
+`NodeFetcher` 适合节点发现场景。
 
 ```java
 Map<String, NeoNode> nodes = NodeFetcher.getFromNKM("https://example.com/nkm.json");
 Map<String, NeoNode> nodesWithTimeout = NodeFetcher.getFromNKM("https://example.com/nkm.json", 1500);
 ```
 
-约定：
+关键点：
 
 - 只接受 `http` / `https`
-- 根 JSON 必须是数组
-- 返回值按 `realId` 作为 key
-- 默认端口常量分别是 `44801` 和 `44802`
+- JSON 根节点必须是数组
+- 返回值用 `realId` 做 key
+- 默认超时是 `1000` 毫秒
 
-使用示例：
+## 常见排障
 
-```java
-Map<String, NeoNode> nodes = NodeFetcher.getFromNKM("https://example.com/nkm.json");
-NeoNode first = nodes.values().stream().findFirst().orElseThrow();
-NeoLinkCfg cfg = first.toCfg("your-access-key", 25565);
-cfg.setTCPEnabled(true).setUDPEnabled(true);
-```
-
-### `NeoLinkState`
-
-状态枚举只有五个值：
-
-- `STOPPED`
-- `STARTING`
-- `RUNNING`
-- `STOPPING`
-- `FAILED`
-
-## 异常映射
-
-Java 版会尽量保留服务端返回值语义，常见异常如下：
-
-- `UnsupportedVersionException`
-- `UnSupportHostVersionException`
-- `NoSuchKeyException`
-- `OutDatedKeyException`
-- `UnRecognizedKeyException`
-- `NoMoreNetworkFlowException`
-- `NoMorePortException`
-- `PortOccupiedException`
-
-结论很简单：如果服务端返回的是业务错误，不要在调用方把它当成普通 `IOException` 吞掉，应该显式分支处理。
+- 启动前先确认 `key`、端口、域名都已填写。
+- 如果是 NKM 节点转出来的配置，记得先确认节点字段完整。
+- 如果是多线程环境，`NeoLinkAPI` 实例不要在未关闭的情况下反复复用。

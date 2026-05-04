@@ -1,3 +1,3 @@
 * [Home](Home)
-* [Java](Java)
-* [Node.js](Node.js)
+* [Java 开发指南](Java)
+* [Node.js 开发指南](Node.js)
