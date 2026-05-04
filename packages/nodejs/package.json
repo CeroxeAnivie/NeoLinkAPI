@@ -1,6 +1,6 @@
 {
   "name": "neolinkapi",
-  "version": "7.1.6",
+  "version": "7.1.7",
   "description": "Node.js API client for NeoLink TCP/UDP tunnels.",
   "author": "Ceroxe",
   "homepage": "https://github.com/CeroxeAnivie/NeoLinkAPI#readme",
@@ -12,12 +12,15 @@
     "url": "git+https://github.com/CeroxeAnivie/NeoLinkAPI.git",
     "directory": "packages/nodejs"
   },
+  "type": "commonjs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "require": "./dist/index.js"
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
     }
   },
   "files": [
@@ -27,7 +30,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/write-esm-wrapper.cjs",
     "test": "npm run build && node --test dist/test/*.js"
   },
   "engines": {

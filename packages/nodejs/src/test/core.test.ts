@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { NeoLinkAPI, NeoLinkCfg, NeoNode, NodeFetcher } from '../index';
 
 test('NeoLinkCfg keeps Java defaults and fluent setters', () => {
@@ -13,7 +15,7 @@ test('NeoLinkCfg keeps Java defaults and fluent setters', () => {
   assert.equal(cfg.isPPV2Enabled(), false);
   assert.equal(cfg.isDebugMsg(), false);
   assert.equal(cfg.getLanguage(), NeoLinkCfg.ZH_CH);
-  assert.equal(NeoLinkAPI.version(), '7.1.6');
+  assert.equal(NeoLinkAPI.version(), '7.1.7');
 
   cfg.setRemoteDomainName('nps.example.com')
     .setHookPort(30001)
@@ -85,4 +87,11 @@ test('tunnel address parser mirrors Java English and Chinese messages', () => {
     NeoLinkAPI.parseTunAddrMessage('使用链接地址： cn.example.test:45679 来从公网连接。'),
     'cn.example.test:45679'
   );
+});
+
+test('package exposes an ESM-compatible entry point', async () => {
+  const esmModule = await import(pathToFileURL(path.resolve(__dirname, '../index.mjs')).href);
+  assert.equal(typeof esmModule.NeoLinkAPI, 'function');
+  assert.equal(typeof esmModule.NeoLinkCfg, 'function');
+  assert.equal(esmModule.VERSION, '7.1.7');
 });
