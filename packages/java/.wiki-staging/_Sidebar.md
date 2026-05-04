@@ -1,6 +1,0 @@
-* [Home](Home)
-* [API Reference](API-Reference)
-* [Configuration](Configuration)
-* [Node Discovery](Node-Discovery)
-* [Lifecycle](Lifecycle)
-* [Error Mapping](Errors)
