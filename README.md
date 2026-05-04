@@ -1,6 +1,6 @@
 # NeoLinkAPI
 
-NeoLinkAPI 是同一套 NeoLink 协议栈的 Monorepo，统一维护 `Java` 和 `TypeScript/Node.js` 两个实现。当前协议版本与对外库版本统一为 `7.1.6`。
+NeoLinkAPI 是同一套 NeoLink 协议栈的 Monorepo，统一维护 `Java` 和 `TypeScript/Node.js` 两个实现。
 
 ```text
 packages/
