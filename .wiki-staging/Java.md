@@ -69,6 +69,24 @@ new NeoLinkCfg(remoteDomainName, hookPort, hostConnectPort, key, localPort)
 
 这个类是可变的，但所有 setter 都会做输入校验，避免把非法配置推迟到启动阶段才暴露。
 
+这些 setter 的重载也属于公开 API，常见的空参数写法如下：
+
+```java
+cfg.setProxyIPToLocalServer();
+cfg.setProxyIPToNeoServer();
+cfg.setPPV2Enabled();
+cfg.setDebugMsg();
+```
+
+如果你想显式写出参数，语义也完全一致：
+
+```java
+cfg.setProxyIPToLocalServer("socks->127.0.0.1:7890");
+cfg.setProxyIPToNeoServer("http->127.0.0.1:7890");
+cfg.setPPV2Enabled(true);
+cfg.setDebugMsg(true);
+```
+
 ### `NeoLinkAPI`
 
 这是唯一的运行期控制入口。
@@ -85,6 +103,12 @@ new NeoLinkCfg(remoteDomainName, hookPort, hostConnectPort, key, localPort)
 - `getState()`：获取生命周期状态
 - `updateRuntimeProtocolFlags(boolean tcpEnabled, boolean udpEnabled)`：运行中切换协议转发开关
 - `close()`：关闭并释放资源
+
+使用示例：
+
+```java
+System.out.println("NeoLinkAPI.version() = " + NeoLinkAPI.version());
+```
 
 回调设置：
 
@@ -105,6 +129,20 @@ new NeoLinkCfg(remoteDomainName, hookPort, hostConnectPort, key, localPort)
 - `getTunAddr()` 在地址尚未就绪时会等待，不是纯同步快照读取。
 - `setUnsupportedVersionDecision(...)` 的回调只负责决定是否继续请求更新地址，不应该在里面做阻塞型业务逻辑。
 
+公开的协议相关嵌套类型也要一起理解：
+
+- `TransportProtocol`：只有 `TCP` 和 `UDP`
+- `ConnectionEventHandler`：参数依次是 `protocol`、`source`、`target`
+
+使用示例：
+
+```java
+api.setOnConnect((protocol, source, target) ->
+        System.out.println("connect " + protocol + " " + source + " -> " + target));
+api.setOnDisconnect((protocol, source, target) ->
+        System.out.println("disconnect " + protocol + " " + source + " -> " + target));
+```
+
 ### `NeoNode`
 
 `NeoNode` 表示 NKM 下发的公共节点元数据。
@@ -123,6 +161,17 @@ NeoLinkCfg cfg = node.toCfg("your-access-key", 25565);
 - `getHookPort()`
 - `getConnectPort()`
 - `toCfg(String key, int localPort)`
+- `equals(Object)`
+- `hashCode()`
+- `toString()`
+
+使用示例：
+
+```java
+NeoNode node = new NeoNode("demo", "demo-id", "nps.example.com", null, 44801, 44802);
+System.out.println(node.equals(node));
+System.out.println(node.toString());
+```
 
 ### `NodeFetcher`
 
@@ -139,6 +188,15 @@ Map<String, NeoNode> nodesWithTimeout = NodeFetcher.getFromNKM("https://example.
 - 根 JSON 必须是数组
 - 返回值按 `realId` 作为 key
 - 默认端口常量分别是 `44801` 和 `44802`
+
+使用示例：
+
+```java
+Map<String, NeoNode> nodes = NodeFetcher.getFromNKM("https://example.com/nkm.json");
+NeoNode first = nodes.values().stream().findFirst().orElseThrow();
+NeoLinkCfg cfg = first.toCfg("your-access-key", 25565);
+cfg.setTCPEnabled(true).setUDPEnabled(true);
+```
 
 ### `NeoLinkState`
 

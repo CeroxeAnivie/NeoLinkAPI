@@ -1,17 +1,17 @@
 # NeoLinkAPI Wiki
 
-NeoLinkAPI 是一套同时维护 Java 与 TypeScript/Node.js 两个实现的 NeoLink 协议栈 SDK。这个 Wiki 只记录对外可依赖的行为、配置边界和推荐用法，不重复源码里的内部实现细节。
+NeoLinkAPI 是一套同时维护 Java 与 Node.js 两个实现的 NeoLink 协议栈 SDK。这个 Wiki 只记录对外可依赖的行为、配置边界和推荐用法，不重复源码里的内部实现细节。
 
 当前文档结构已经移动到仓库根目录的 `.wiki-staging`，便于后续统一发布与维护。
 
 ## 文档导航
 
 - [Java](Java)
-- [TypeScript](TypeScript)
+- [Node.js](Node.js)
 
 ## 阅读顺序
 
-1. 先看 `Java` 或 `TypeScript`，根据你实际使用的语言选择对应文档。
+1. 先看 `Java` 或 `Node.js`，根据你实际使用的编程语言选择对应文档。
 2. 再看配置与生命周期部分，确认启动参数、回调和关闭策略。
 3. 如果你要从 NKM 节点列表启动，再看节点发现部分。
 4. 最后看错误映射，保证服务端返回值和本地异常能对齐。
