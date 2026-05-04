@@ -1,22 +1,20 @@
 # NeoLinkAPI 开发指南
 
-NeoLinkAPI 同时提供 Java 和 Node.js 两套实现。这个 Wiki 的目标很简单：让你先照着最少步骤跑起来，再去查更细的 API。
+NeoLinkAPI 同时提供 Java 和 Node.js 两套实现。这个 Wiki 的目标是让你先用正确的最小调用跑起来，再按需查配置、节点发现和事件回调。
 
-## 先看这个
+## 入口
 
-- 你只想快速接入：先看对应语言页的“最小可用示例”。
-- 你已经知道要怎么接：直接跳到“常见场景”。
-- 你在排障：看“关闭与错误处理”和“节点发现”。
+- [Java 开发指南](Java)
+- [Node.js 开发指南](Node.js)
 
-## 页面导航
+## 先理解这两点
 
-- [Java](Java)
-- [Node.js](Node.js)
+- `NeoLinkCfg` 构造函数已经包含最小必填项，`localhost`、TCP 启用、UDP 启用都是默认值。
+- Java 的 `start()` 是阻塞方法；Node.js 的 `api.start()` 返回的 Promise 也会等隧道运行结束。
 
-## 统一理解
+## 常用对象
 
-- `NeoLinkCfg` 是启动前配置对象。
-- `NeoLinkAPI` 是运行期控制对象。
-- `NeoNode` 表示一个 NKM 节点。
-- `NodeFetcher` 负责从 NKM 拉取节点列表。
-- 所有端口都必须在 `1..65535`。
+- `NeoLinkCfg`：启动前配置对象。
+- `NeoLinkAPI`：运行期控制对象。
+- `NeoNode`：NKM 节点对象。
+- `NodeFetcher`：NKM 节点拉取工具。
