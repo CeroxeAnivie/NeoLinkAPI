@@ -19,20 +19,6 @@ shared/      两种实现共享的协议契约、fixtures 和 Mock 数据
 
 `shared` 只存放跨语言共享事实，不放运行时代码。协议、默认值、握手样例和 NKM fixtures 应先落在这里，再同步到两种实现。
 
-## API 结构一致性
-
-Java 和 Node.js 两个库的核心结构保持一致，只是语言运行模型不同：
-
-| 概念 | Java | Node.js | 说明 |
-| --- | --- | --- | --- |
-| 启动前配置 | `NeoLinkCfg` | `NeoLinkCfg` | 构造参数、默认值和 setter 语义保持一致 |
-| 运行期对象 | `NeoLinkAPI` | `NeoLinkAPI` | 负责启动、停止、状态、回调和运行期协议切换 |
-| NKM 节点 | `NeoNode` | `NeoNode` | 表示从 NKM 拉取到的公共节点元数据 |
-| NKM 拉取 | `NodeFetcher.getFromNKM(...)` | `NodeFetcher.getFromNKM(...)` | Java 同步返回 `Map`，Node.js 返回 `Promise<Map>` |
-| 启动方法 | `api.start()` | `await api.start()` | 都会等待隧道运行结束；Java 阻塞当前线程，Node.js 返回长运行 Promise |
-| 隧道地址 | `api.getTunAddr()` | `await api.getTunAddr()` | 都会等服务端下发公网访问地址 |
-| 停止方法 | `api.close()` | `api.close()` | 都用于停止隧道并释放连接 |
-
 ## 安装
 
 ### Node.js
