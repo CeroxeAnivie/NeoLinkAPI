@@ -1,4 +1,4 @@
-import { VERSION } from './version-info';
+import { VERSION } from './version-info.js';
 
 export const EN_US = 'en';
 export const ZH_CH = 'zh';

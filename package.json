@@ -1,6 +1,6 @@
 {
   "name": "neolinkapi-monorepo",
-  "version": "7.1.7",
+  "version": "7.1.8",
   "private": true,
   "description": "Monorepo for the Java and Node.js NeoLinkAPI implementations.",
   "homepage": "https://github.com/CeroxeAnivie/NeoLinkAPI#readme",

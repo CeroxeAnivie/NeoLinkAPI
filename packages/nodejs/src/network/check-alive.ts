@@ -1,5 +1,5 @@
-import { SecureSocket } from '../secure-socket';
-import type { DebugSink, ErrorHandler } from '../types';
+import { SecureSocket } from '../secure-socket.js';
+import type { DebugSink, ErrorHandler } from '../types.js';
 
 export const HEARTBEAT_PACKET = 'PING';
 export const MAX_CONSECUTIVE_FAILURES = 5;

@@ -1,7 +1,7 @@
 import { Buffer } from 'node:buffer';
 import net from 'node:net';
-import { SecureSocket } from '../secure-socket';
-import { SocketReader, closeQuietly, connectTcp, writeAll } from './socket-utils';
+import { SecureSocket } from '../secure-socket.js';
+import { SocketReader, closeQuietly, connectTcp, writeAll } from './socket-utils.js';
 
 export const TO_NEO = 0;
 export const TO_LOCAL = 1;

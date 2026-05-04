@@ -1,7 +1,7 @@
 import dgram from 'node:dgram';
 import net from 'node:net';
-import { SecureSocket } from '../secure-socket';
-import type { DebugSink } from '../types';
+import { SecureSocket } from '../secure-socket.js';
+import type { DebugSink } from '../types.js';
 
 export const MAGIC = 0xDEADBEEF;
 export const SERIALIZED_HEADER_FIXED_LENGTH = 4 + 4 + 4 + 2;

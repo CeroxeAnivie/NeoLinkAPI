@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { NeoLinkAPI, NeoLinkCfg, NeoNode, NodeFetcher } from '../index';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { NeoLinkAPI, NeoLinkCfg, NeoNode, NodeFetcher } from '../index.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 test('NeoLinkCfg keeps Java defaults and fluent setters', () => {
   const cfg = new NeoLinkCfg('top.ceroxe.example', 44801, 44802, 'key', 25565);
@@ -15,7 +18,7 @@ test('NeoLinkCfg keeps Java defaults and fluent setters', () => {
   assert.equal(cfg.isPPV2Enabled(), false);
   assert.equal(cfg.isDebugMsg(), false);
   assert.equal(cfg.getLanguage(), NeoLinkCfg.ZH_CH);
-  assert.equal(NeoLinkAPI.version(), '7.1.7');
+  assert.equal(NeoLinkAPI.version(), '7.1.8');
 
   cfg.setRemoteDomainName('nps.example.com')
     .setHookPort(30001)
@@ -90,8 +93,16 @@ test('tunnel address parser mirrors Java English and Chinese messages', () => {
 });
 
 test('package exposes an ESM-compatible entry point', async () => {
-  const esmModule = await import(pathToFileURL(path.resolve(__dirname, '../index.mjs')).href);
+  const esmModule = await import(pathToFileURL(path.resolve(__dirname, '../index.js')).href);
   assert.equal(typeof esmModule.NeoLinkAPI, 'function');
   assert.equal(typeof esmModule.NeoLinkCfg, 'function');
-  assert.equal(esmModule.VERSION, '7.1.7');
+  assert.equal(esmModule.VERSION, '7.1.8');
+});
+
+test('package exposes a CommonJS-compatible entry point', () => {
+  const requireFromTest = createRequire(import.meta.url);
+  const cjsModule = requireFromTest(path.resolve(__dirname, '../../dist-cjs/index.js'));
+  assert.equal(typeof cjsModule.NeoLinkAPI, 'function');
+  assert.equal(typeof cjsModule.NeoLinkCfg, 'function');
+  assert.equal(cjsModule.VERSION, '7.1.8');
 });

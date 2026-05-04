@@ -1,7 +1,7 @@
 import net from 'node:net';
-import { SecureSocket } from '../secure-socket';
-import type { DebugSink } from '../types';
-import { writeAll } from './socket-utils';
+import { SecureSocket } from '../secure-socket.js';
+import type { DebugSink } from '../types.js';
+import { writeAll } from './socket-utils.js';
 
 export const MODE_NEO_TO_LOCAL = 0;
 export const MODE_LOCAL_TO_NEO = 1;

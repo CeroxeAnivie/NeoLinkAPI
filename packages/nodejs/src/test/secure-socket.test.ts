@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { SecureServerSocket, SecureSocket } from '../secure-socket';
+import { SecureServerSocket, SecureSocket } from '../secure-socket.js';
 
 test('SecureSocket transfers every byte value transparently', async () => {
   const server = await SecureServerSocket.listen(0);

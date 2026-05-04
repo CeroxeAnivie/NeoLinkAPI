@@ -21,7 +21,7 @@
   },
   {
     "name": "unsupported-version",
-    "response": "Unsupported version ! It should be :7.1.7",
+    "response": "Unsupported version ! It should be :7.1.8",
     "classification": "UnSupportHostVersionException"
   },
   {

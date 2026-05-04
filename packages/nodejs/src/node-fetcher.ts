@@ -1,4 +1,4 @@
-import { NeoNode } from './neo-node';
+import { NeoNode } from './neo-node.js';
 
 export const DEFAULT_TIMEOUT_MILLIS = 1000;
 export const DEFAULT_HOST_HOOK_PORT = 44801;

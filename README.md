@@ -33,7 +33,7 @@ npm install neolinkapi
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi</artifactId>
-    <version>7.1.7</version>
+    <version>7.1.8</version>
 </dependency>
 ```
 
@@ -41,7 +41,7 @@ npm install neolinkapi
 
 ```kotlin
 dependencies {
-    implementation("top.ceroxe.api:neolinkapi:7.1.7")
+    implementation("top.ceroxe.api:neolinkapi:7.1.8")
 }
 ```
 
@@ -49,7 +49,7 @@ dependencies {
 
 ```groovy
 dependencies {
-    implementation 'top.ceroxe.api:neolinkapi:7.1.7'
+    implementation 'top.ceroxe.api:neolinkapi:7.1.8'
 }
 ```
 

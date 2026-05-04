@@ -102,6 +102,12 @@ replaceInFile(
 );
 
 replaceInFile(
+  'packages/nodejs/src/test/core.test.ts',
+  /assert\.equal\(cjsModule\.VERSION, '[0-9.]+'\);/,
+  `assert.equal(cjsModule.VERSION, '${apiVersion}');`
+);
+
+replaceInFile(
   'packages/nodejs/src/test/lifecycle.test.ts',
   /assert\.equal\(handshake, 'zh;[0-9.]+;key;'\);/,
   `assert.equal(handshake, 'zh;${apiVersion};key;');`

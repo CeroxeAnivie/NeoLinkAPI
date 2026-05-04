@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import net from 'node:net';
-import { SocketReader, closeQuietly, connectTcp, writeAll } from './network/socket-utils';
-import type { Endpoint } from './types';
+import { SocketReader, closeQuietly, connectTcp, writeAll } from './network/socket-utils.js';
+import type { Endpoint } from './types.js';
 
 const KEY_EXCHANGE_ALGO = 'x25519';
 export const FRAME_TYPE_STRING = 0x01;

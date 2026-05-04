@@ -2,10 +2,10 @@ import * as dns from 'node:dns/promises';
 import * as dgram from 'node:dgram';
 import * as net from 'node:net';
 import * as os from 'node:os';
-import { allLanguageData } from './language-data';
-import { NeoLinkCfg, requirePositive } from './neo-link-cfg';
-import { NeoLinkState } from './neo-link-state';
-import { SecureSocket } from './secure-socket';
+import { allLanguageData } from './language-data.js';
+import { NeoLinkCfg, requirePositive } from './neo-link-cfg.js';
+import { NeoLinkState } from './neo-link-state.js';
+import { SecureSocket } from './secure-socket.js';
 import {
   NoMoreNetworkFlowException,
   NoMorePortException,
@@ -15,14 +15,14 @@ import {
   UnRecognizedKeyException,
   UnSupportHostVersionException,
   UnsupportedVersionException
-} from './errors';
-import type { DebugSink, Endpoint } from './types';
-import { CheckAliveThread } from './network/check-alive';
-import { ProxyOperator, TO_LOCAL, TO_NEO } from './network/proxy-operator';
-import { closeQuietly, connectTcp } from './network/socket-utils';
-import { transferLocalToNeo as transferTcpLocalToNeo, transferNeoToLocal as transferTcpNeoToLocal } from './network/tcp-transformer';
-import { createUdpSocket, transferLocalToNeo as transferUdpLocalToNeo, transferNeoToLocal as transferUdpNeoToLocal } from './network/udp-transformer';
-import { VERSION } from './version-info';
+} from './errors.js';
+import type { DebugSink, Endpoint } from './types.js';
+import { CheckAliveThread } from './network/check-alive.js';
+import { ProxyOperator, TO_LOCAL, TO_NEO } from './network/proxy-operator.js';
+import { closeQuietly, connectTcp } from './network/socket-utils.js';
+import { transferLocalToNeo as transferTcpLocalToNeo, transferNeoToLocal as transferTcpNeoToLocal } from './network/tcp-transformer.js';
+import { createUdpSocket, transferLocalToNeo as transferUdpLocalToNeo, transferNeoToLocal as transferUdpNeoToLocal } from './network/udp-transformer.js';
+import { VERSION } from './version-info.js';
 
 const UNKNOWN_HOST = 'unknown';
 const WINDOWS_UPDATE_CLIENT_TYPE = 'exe';

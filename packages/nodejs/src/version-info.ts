@@ -1,2 +1,2 @@
-export const VERSION = '7.1.7';
+export const VERSION = '7.1.8';
 export const AUTHOR = 'Ceroxe';

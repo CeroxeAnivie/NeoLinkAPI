@@ -1,4 +1,4 @@
-import { NeoLinkCfg, requirePort, requireText } from './neo-link-cfg';
+import { NeoLinkCfg, requirePort, requireText } from './neo-link-cfg.js';
 
 function normalizeOptionalText(value: unknown): string | null {
   if (value == null || String(value).trim() === '') {
