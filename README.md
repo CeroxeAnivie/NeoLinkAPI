@@ -19,6 +19,20 @@ shared/      两种实现共享的协议契约、fixtures 和 Mock 数据
 
 `shared` 只存放跨语言共享事实，不放运行时代码。协议、默认值、握手样例和 NKM fixtures 应先落在这里，再同步到两种实现。
 
+## API 结构一致性
+
+Java 和 Node.js 两个库的核心结构保持一致，只是语言运行模型不同：
+
+| 概念 | Java | Node.js | 说明 |
+| --- | --- | --- | --- |
+| 启动前配置 | `NeoLinkCfg` | `NeoLinkCfg` | 构造参数、默认值和 setter 语义保持一致 |
+| 运行期对象 | `NeoLinkAPI` | `NeoLinkAPI` | 负责启动、停止、状态、回调和运行期协议切换 |
+| NKM 节点 | `NeoNode` | `NeoNode` | 表示从 NKM 拉取到的公共节点元数据 |
+| NKM 拉取 | `NodeFetcher.getFromNKM(...)` | `NodeFetcher.getFromNKM(...)` | Java 同步返回 `Map`，Node.js 返回 `Promise<Map>` |
+| 启动方法 | `api.start()` | `await api.start()` | 都会等待隧道运行结束；Java 阻塞当前线程，Node.js 返回长运行 Promise |
+| 隧道地址 | `api.getTunAddr()` | `await api.getTunAddr()` | 都会等服务端下发公网访问地址 |
+| 停止方法 | `api.close()` | `api.close()` | 都用于停止隧道并释放连接 |
+
 ## 安装
 
 ### Node.js
@@ -56,6 +70,8 @@ dependencies {
 ## Java 快速开始
 
 `NeoLinkCfg` 构造函数已经包含最小必填项。`localDomainName` 默认是 `localhost`，TCP 和 UDP 默认都是启用状态，所以最小配置不需要重复设置这些默认项。
+
+构造参数从左到右是：`remoteDomainName`、`hookPort`、`hostConnectPort`、`key`、`localPort`。前三个来自 NeoProxy/NeoLink 服务端或 NKM 节点，`key` 是服务端访问密钥，`localPort` 是本机下游服务端口。
 
 `NeoLinkAPI.start()` 是长运行阻塞方法：它会阻塞到隧道停止、服务端断开、运行期错误或其他线程调用 `close()`。
 
@@ -105,6 +121,8 @@ Runtime.getRuntime().addShutdownHook(new Thread(() -> {
 ## Node.js 快速开始
 
 Node.js 版同样有默认值：`localDomainName` 默认是 `localhost`，TCP 和 UDP 默认都是启用状态。
+
+`NeoLinkCfg` 构造参数和 Java 一致：`remoteDomainName`、`hookPort`、`hostConnectPort`、`key`、`localPort`。前三个来自 NeoProxy/NeoLink 服务端或 NKM 节点，`key` 是服务端访问密钥，`localPort` 是本机下游服务端口。
 
 `await api.start()` 会等待隧道运行结束，不是“启动后立刻返回”。如果你只想把隧道作为当前进程的主任务，直接 `await` 即可。
 
