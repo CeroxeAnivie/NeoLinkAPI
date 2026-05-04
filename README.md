@@ -167,31 +167,21 @@ void main();
 
 ## 构建与测试
 
-根目录的 `build` 和 `test` 面向 npm 包开发，默认只处理 Node.js 库：
+下面所有命令都在仓库根目录执行，也就是 `NeoLinkAPI` 根目录。
 
-```cmd
-npm install
-npm run build
-npm test
-```
+| 目标 | 命令 |
+| --- | --- |
+| 安装 Node.js 开发依赖 | `npm install` |
+| 校验 shared JSON 契约 | `npm run check:shared` |
+| 构建 Node.js 库 | `npm run build` 或 `npm run build:nodejs` |
+| 测试 Node.js 库 | `npm test` 或 `npm run test:nodejs` |
+| 构建 Java 库 | `npm run build:java` |
+| 测试 Java 库 | `npm run test:java` |
+| 离线构建 Java 库 | `npm run build:java:offline` |
+| 离线测试 Java 库 | `npm run test:java:offline` |
+| 构建 Java + Node.js | `npm run build:all` |
+| 测试 Java + Node.js | `npm run test:all` |
+| 离线构建 Java + Node.js | `npm run build:all:offline` |
+| 离线测试 Java + Node.js | `npm run test:all:offline` |
 
-需要一次性验证整个 Monorepo 时使用：
-
-```cmd
-npm run build:all
-npm run test:all
-```
-
-单独构建 Java：
-
-```cmd
-cd packages\java
-.\gradlew.bat build
-```
-
-单独构建 Node.js：
-
-```cmd
-npm run build -w neolinkapi
-npm run test -w neolinkapi
-```
+Java 命令会从根目录直接调用 `packages\java\gradlew.bat`，不需要手动 `cd packages\java`。

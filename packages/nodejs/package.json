@@ -22,8 +22,9 @@
   },
   "files": [
     "dist",
-    "LICENSE",
-    "README.md"
+    "!dist/test",
+    "!dist/test/**",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",

@@ -15,15 +15,19 @@
     "packages/nodejs"
   ],
   "scripts": {
-    "build": "npm run build:nodejs",
-    "test": "npm run test:nodejs",
-    "build:all": "npm run build:java && npm run build:nodejs",
-    "test:all": "npm run test:java && npm run test:nodejs",
+    "build": "node node_modules/typescript/bin/tsc -p packages/nodejs/tsconfig.json",
+    "test": "node node_modules/typescript/bin/tsc -p packages/nodejs/tsconfig.json && node --test packages/nodejs/dist/test/*.js",
+    "build:all": "node scripts/run-gradle.cjs build && node node_modules/typescript/bin/tsc -p packages/nodejs/tsconfig.json",
+    "test:all": "node scripts/run-gradle.cjs test && node node_modules/typescript/bin/tsc -p packages/nodejs/tsconfig.json && node --test packages/nodejs/dist/test/*.js",
+    "build:all:offline": "node scripts/run-gradle.cjs build --offline && node node_modules/typescript/bin/tsc -p packages/nodejs/tsconfig.json",
+    "test:all:offline": "node scripts/run-gradle.cjs test --offline && node node_modules/typescript/bin/tsc -p packages/nodejs/tsconfig.json && node --test packages/nodejs/dist/test/*.js",
     "check:shared": "node -e \"for (const f of ['shared/protocol/neolink-protocol.contract.json','shared/fixtures/nkm/nodes.valid.json','shared/fixtures/handshake/startup-responses.json']) JSON.parse(require('fs').readFileSync(f,'utf8'))\"",
-    "build:nodejs": "npm run build -w neolinkapi",
-    "test:nodejs": "npm run test -w neolinkapi",
-    "build:java": "cd packages/java && .\\gradlew.bat build",
-    "test:java": "cd packages/java && .\\gradlew.bat test"
+    "build:nodejs": "node node_modules/typescript/bin/tsc -p packages/nodejs/tsconfig.json",
+    "test:nodejs": "node node_modules/typescript/bin/tsc -p packages/nodejs/tsconfig.json && node --test packages/nodejs/dist/test/*.js",
+    "build:java": "node scripts/run-gradle.cjs build",
+    "test:java": "node scripts/run-gradle.cjs test",
+    "build:java:offline": "node scripts/run-gradle.cjs build --offline",
+    "test:java:offline": "node scripts/run-gradle.cjs test --offline"
   },
   "engines": {
     "node": ">=20.0.0"
