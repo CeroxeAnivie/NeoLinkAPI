@@ -167,7 +167,7 @@ void main();
 
 ## 构建与测试
 
-根目录命令会同时处理 Java 和 Node.js：
+根目录的 `build` 和 `test` 面向 npm 包开发，默认只处理 Node.js 库：
 
 ```cmd
 npm install
@@ -175,11 +175,18 @@ npm run build
 npm test
 ```
 
+需要一次性验证整个 Monorepo 时使用：
+
+```cmd
+npm run build:all
+npm run test:all
+```
+
 单独构建 Java：
 
 ```cmd
 cd packages\java
-gradlew.bat build
+.\gradlew.bat build
 ```
 
 单独构建 Node.js：

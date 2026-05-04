@@ -15,13 +15,15 @@
     "packages/nodejs"
   ],
   "scripts": {
-    "build": "npm run build:java && npm run build:nodejs",
-    "test": "npm run test:java && npm run test:nodejs",
+    "build": "npm run build:nodejs",
+    "test": "npm run test:nodejs",
+    "build:all": "npm run build:java && npm run build:nodejs",
+    "test:all": "npm run test:java && npm run test:nodejs",
     "check:shared": "node -e \"for (const f of ['shared/protocol/neolink-protocol.contract.json','shared/fixtures/nkm/nodes.valid.json','shared/fixtures/handshake/startup-responses.json']) JSON.parse(require('fs').readFileSync(f,'utf8'))\"",
     "build:nodejs": "npm run build -w neolinkapi",
     "test:nodejs": "npm run test -w neolinkapi",
-    "build:java": "cd packages/java && gradlew.bat build",
-    "test:java": "cd packages/java && gradlew.bat test"
+    "build:java": "cd packages/java && .\\gradlew.bat build",
+    "test:java": "cd packages/java && .\\gradlew.bat test"
   },
   "engines": {
     "node": ">=20.0.0"
