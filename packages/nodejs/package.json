@@ -1,0 +1,40 @@
+{
+  "name": "neolinkapi",
+  "version": "7.1.6",
+  "description": "TypeScript API client for NeoLink TCP/UDP tunnels.",
+  "author": "Ceroxe",
+  "homepage": "https://github.com/CeroxeAnivie/NeoLinkAPI#readme",
+  "bugs": {
+    "url": "https://github.com/CeroxeAnivie/NeoLinkAPI/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CeroxeAnivie/NeoLinkAPI.git",
+    "directory": "packages/nodejs"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --test dist/test/*.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "license": "MIT"
+}

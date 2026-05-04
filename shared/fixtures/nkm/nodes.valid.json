@@ -1,0 +1,16 @@
+[
+  {
+    "realId": "node-suqian",
+    "name": "中国 - 宿迁官方",
+    "address": "p.ceroxe.top",
+    "icon": "<svg viewBox=\"0 0 1 1\"></svg>",
+    "HOST_HOOK_PORT": 44801,
+    "HOST_CONNECT_PORT": "44802"
+  },
+  {
+    "realId": "node-default-ports",
+    "name": "默认端口节点",
+    "address": "default.ceroxe.top",
+    "iconSvg": null
+  }
+]

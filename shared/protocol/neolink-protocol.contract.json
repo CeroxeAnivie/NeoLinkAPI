@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "NeoLinkAPI protocol contract",
+  "protocolVersion": "7.1.6",
+  "defaults": {
+    "localDomainName": "localhost",
+    "hostHookPort": 44801,
+    "hostConnectPort": 44802,
+    "heartbeatPacketDelayMillis": 1000,
+    "nodeFetchTimeoutMillis": 1000,
+    "tcpEnabled": true,
+    "udpEnabled": true,
+    "ppv2Enabled": false,
+    "debugMsg": false,
+    "language": "zh"
+  },
+  "clientInfo": {
+    "format": "{language};{clientVersion};{key};{protocolFlags}",
+    "protocolFlags": {
+      "tcpAndUdp": "TU",
+      "tcpOnly": "T",
+      "udpOnly": "U",
+      "none": ""
+    },
+    "languages": {
+      "english": "en",
+      "chinese": "zh"
+    }
+  },
+  "serverCommands": {
+    "sendSocketTCP": ":>sendSocketTCP;{socketId};{remoteAddress}",
+    "sendSocketUDP": ":>sendSocketUDP;{socketId};{remoteAddress}",
+    "exit": ":>exit",
+    "exitNoFlow": ":>exitNoFlow",
+    "checkAlive": ":>checkAlive"
+  },
+  "startupResponses": {
+    "success": {
+      "english": "Connection build up successfully",
+      "chinese": "服务器连接成功"
+    },
+    "tunAddr": {
+      "englishFormat": "Use the address: {tunAddr} to start up connections.",
+      "chineseFormat": "使用链接地址：{tunAddr} 来从公网连接。"
+    },
+    "remotePortOccupied": {
+      "english": "Connection rejected: Port occupied by another node or limit reached.",
+      "chinese": "连接被拒绝：该端口已被其他节点占用，或已达到最大允许连接数。"
+    },
+    "portAlreadyInUse": {
+      "english": "This port is already in use. Please try with a different node.",
+      "chinese": "这个端口已经被占用了，请你更换节点重试。"
+    },
+    "accessDeniedForceExiting": {
+      "english": "Access denied , force exiting...",
+      "chinese": "密钥错误，强制退出。。。"
+    },
+    "noNetworkFlowLeft": {
+      "wire": "exitNoFlow",
+      "english": "This key have no network flow left ! Force exiting...",
+      "chinese": "这个密钥已经没有流量了，强制退出。。。"
+    },
+    "unsupportedVersionPrefix": {
+      "english": "Unsupported version ! It should be :",
+      "chinese": "不受支持的版本，应该为"
+    },
+    "outdatedKey": {
+      "englishPrefix": "Key ",
+      "englishAltPrefix": "The key ",
+      "englishSuffix": " are out of date.",
+      "chinesePrefix": "密钥 ",
+      "chineseAltPrefix": "这个密钥 ",
+      "chineseSuffix": " 已经过期了。"
+    }
+  },
+  "secureSocket": {
+    "keyExchange": "X25519",
+    "keyDerivation": "SHA-256",
+    "cipher": "AES-256-GCM",
+    "rawPacketHeader": {
+      "byteLength": 4,
+      "integerEncoding": "signed-int32-be"
+    },
+    "frameTypes": {
+      "string": 1,
+      "bytes": 2,
+      "int": 3,
+      "eof": 4
+    }
+  },
+  "udpDatagram": {
+    "magic": "0xDEADBEEF",
+    "fixedHeaderLength": 14,
+    "ipv4Length": 4,
+    "ipv6Length": 16,
+    "maxBufferLength": 65535
+  }
+}

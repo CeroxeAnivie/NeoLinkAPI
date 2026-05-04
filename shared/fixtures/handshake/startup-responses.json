@@ -1,0 +1,52 @@
+[
+  {
+    "name": "english-success",
+    "response": "Connection build up successfully",
+    "classification": "success"
+  },
+  {
+    "name": "chinese-success",
+    "response": "服务器连接成功",
+    "classification": "success"
+  },
+  {
+    "name": "english-tun-addr",
+    "response": "Use the address: edge.example.test:45678 to start up connections.",
+    "tunAddr": "edge.example.test:45678"
+  },
+  {
+    "name": "chinese-tun-addr",
+    "response": "使用链接地址：cn.example.test:45679 来从公网连接。",
+    "tunAddr": "cn.example.test:45679"
+  },
+  {
+    "name": "unsupported-version",
+    "response": "Unsupported version ! It should be :7.1.6",
+    "classification": "UnSupportHostVersionException"
+  },
+  {
+    "name": "outdated-key",
+    "response": "Key demo-key are out of date.",
+    "classification": "OutDatedKeyException"
+  },
+  {
+    "name": "unrecognized-key",
+    "response": "Access denied , force exiting...",
+    "classification": "UnRecognizedKeyException"
+  },
+  {
+    "name": "no-more-network-flow",
+    "response": "exitNoFlow",
+    "classification": "NoMoreNetworkFlowException"
+  },
+  {
+    "name": "remote-port-occupied",
+    "response": "Connection rejected: Port occupied by another node or limit reached.",
+    "classification": "PortOccupiedException"
+  },
+  {
+    "name": "no-more-port",
+    "response": "This port is already in use. Please try with a different node.",
+    "classification": "NoMorePortException"
+  }
+]

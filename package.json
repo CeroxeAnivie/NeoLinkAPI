@@ -1,0 +1,30 @@
+{
+  "name": "neolinkapi-monorepo",
+  "version": "7.1.6",
+  "private": true,
+  "description": "Monorepo for the Java and TypeScript NeoLinkAPI implementations.",
+  "homepage": "https://github.com/CeroxeAnivie/NeoLinkAPI#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CeroxeAnivie/NeoLinkAPI.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CeroxeAnivie/NeoLinkAPI/issues"
+  },
+  "workspaces": [
+    "packages/nodejs"
+  ],
+  "scripts": {
+    "build": "npm run build:java && npm run build:nodejs",
+    "test": "npm run test:java && npm run test:nodejs",
+    "check:shared": "node -e \"for (const f of ['shared/protocol/neolink-protocol.contract.json','shared/fixtures/nkm/nodes.valid.json','shared/fixtures/handshake/startup-responses.json']) JSON.parse(require('fs').readFileSync(f,'utf8'))\"",
+    "build:nodejs": "npm run build -w neolinkapi",
+    "test:nodejs": "npm run test -w neolinkapi",
+    "build:java": "cd packages/java && gradlew.bat build",
+    "test:java": "cd packages/java && gradlew.bat test"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}

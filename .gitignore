@@ -1,40 +1,68 @@
-# Gradle
-.gradle
+# Node.js
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+coverage/
+**/coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Gradle / Java
+.gradle/
+**/.gradle/
 .gradle-home/
+**/.gradle-home/
 build/
+**/build/
 !**/src/main/**/build/
 !**/src/test/**/build/
+out/
+bin/
+*.class
 
-# IntelliJ IDEA
-.idea/
+# Runtime output
+logs/
+**/logs/
+*.log
+config.cfg
+**/config.cfg
+eula.txt
+**/eula.txt
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDEs
+.vscode/
 *.iws
 *.iml
 *.ipr
-out/
-bin/
-
-# Eclipse
-.apt_generated
+.idea/workspace.xml
+.idea/shelf/
+.idea/httpRequests/
+.idea/queries/
+.idea/dataSources/
+.idea/dataSources.local.xml
+.idea/material_theme_project_new.xml
 .classpath
 .factorypath
 .project
-.settings
+.settings/
+.apt_generated/
 .springBeans
-.sts4-cache
+.sts4-cache/
 
-# VS Code
-.vscode/
-
-# MacOS
+# OS
 .DS_Store
+Thumbs.db
 
-# 运行产物
-/logs/
-/config.cfg
-eula.txt
-/run-transparency-check.cmd
-
-# 临时文件
-all_code.txt
-*.log
+# Temporary files
 *.temp
+*.tmp
+all_code.txt
