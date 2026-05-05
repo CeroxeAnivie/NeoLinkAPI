@@ -39,6 +39,7 @@ eula.txt
 .env
 .env.*
 !.env.example
+packages/java/android/neolinkapi-android/local.properties
 
 # IDEs
 .vscode/
@@ -47,12 +48,16 @@ eula.txt
 *.ipr
 .idea/workspace.xml
 .idea/misc.xml
+.idea/modules.xml
+.idea/libraries/
 .idea/shelf/
 .idea/httpRequests/
 .idea/queries/
 .idea/dataSources/
 .idea/dataSources.local.xml
 .idea/material_theme_project_new.xml
+.idea/gradle.xml
+.idea/compiler.xml
 .classpath
 .factorypath
 .project
@@ -64,9 +69,18 @@ eula.txt
 # OS
 .DS_Store
 Thumbs.db
+desktop.ini
+*.stackdump
 
-# Temporary files
+# Temporary / Backup files
 *.temp
 *.tmp
 *.tgz
+*.swp
+*.swo
+*~
 all_code.txt
+
+# Node.js caches
+.eslintcache
+.node_repl_history

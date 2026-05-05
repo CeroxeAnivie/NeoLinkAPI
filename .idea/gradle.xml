@@ -9,6 +9,17 @@
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$/packages/java" />
+            <option value="$PROJECT_DIR$/packages/java/desktop" />
+            <option value="$PROJECT_DIR$/packages/java/shared" />
+          </set>
+        </option>
+      </GradleProjectSettings>
+      <GradleProjectSettings>
+        <option name="externalProjectPath" value="$PROJECT_DIR$/packages/java/android/neolinkapi-android" />
+        <option name="gradleJvm" value="zulu-17" />
+        <option name="modules">
+          <set>
+            <option value="$PROJECT_DIR$/packages/java/android/neolinkapi-android" />
           </set>
         </option>
       </GradleProjectSettings>

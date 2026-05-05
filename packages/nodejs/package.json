@@ -1,6 +1,6 @@
 {
   "name": "neolinkapi",
-  "version": "7.1.8",
+  "version": "7.1.9",
   "description": "Node.js API client for NeoLink TCP/UDP tunnels.",
   "author": "Ceroxe",
   "homepage": "https://github.com/CeroxeAnivie/NeoLinkAPI#readme",

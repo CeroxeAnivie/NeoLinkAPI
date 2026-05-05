@@ -1,6 +1,6 @@
 {
   "name": "neolinkapi-monorepo",
-  "version": "7.1.8",
+  "version": "7.1.9",
   "private": true,
   "description": "Monorepo for the Java and Node.js NeoLinkAPI implementations.",
   "homepage": "https://github.com/CeroxeAnivie/NeoLinkAPI#readme",
@@ -28,7 +28,10 @@
     "build:java": "node scripts/run-gradle.cjs build",
     "test:java": "node scripts/run-gradle.cjs test",
     "build:java:offline": "node scripts/run-gradle.cjs build --offline",
-    "test:java:offline": "node scripts/run-gradle.cjs test --offline"
+    "test:java:offline": "node scripts/run-gradle.cjs test --offline",
+    "build:java:android": "node scripts/run-gradle-android.cjs build",
+    "test:java:android": "node scripts/run-gradle-android.cjs test",
+    "test:java:android:fast": "node scripts/run-gradle-android.cjs testDebugUnitTest"
   },
   "engines": {
     "node": ">=20.0.0"

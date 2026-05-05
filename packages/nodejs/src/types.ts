@@ -1,6 +1,6 @@
 export interface Endpoint {
-  host: string;
-  port: number;
+    host: string;
+    port: number;
 }
 
 export type DebugSink = (message: string | null, cause?: unknown) => void;

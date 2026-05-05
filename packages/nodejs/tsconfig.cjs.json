@@ -9,5 +9,9 @@
     "declarationMap": false,
     "verbatimModuleSyntax": false
   },
-  "exclude": ["dist", "dist-cjs", "src/test/**/*.ts"]
+  "exclude": [
+    "dist",
+    "dist-cjs",
+    "src/test/**/*.ts"
+  ]
 }

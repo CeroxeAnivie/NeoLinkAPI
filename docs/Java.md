@@ -2,6 +2,8 @@
 
 Java 版适合直接嵌入业务服务。接入时先明确一个事实：`NeoLinkAPI.start()` 是长运行阻塞方法，它会阻塞到隧道停止、服务端断开、运行期错误，或者其他线程调用 `close()`。
 
+桌面 JVM 产物坐标是 `top.ceroxe.api:neolinkapi-desktop:7.1.9`。Android 产物使用独立坐标 `top.ceroxe.api:neolinkapi-android:7.1.9`，不要在 Android 项目中依赖桌面 JVM 产物。
+
 ## 最小调用
 
 `NeoLinkCfg` 构造函数已经包含最小必填项：远端地址、控制端口、转发端口、访问密钥、本地端口。
@@ -225,6 +227,7 @@ cd packages\java
 | 离线构建 Java 库 | `.\gradlew.bat build --offline` | 只使用本地 Gradle 缓存构建 |
 | 离线测试 Java 库 | `.\gradlew.bat test --offline` | 只使用本地 Gradle 缓存测试 |
 | 清理构建目录 | `.\gradlew.bat clean` | 删除 `build/` 输出目录 |
-| 生成透明性检查 classpath | `.\gradlew.bat printTransparencyRuntimeClasspath` | 输出透明性检查脚本所需的完整运行时 classpath |
+| 生成透明性检查 classpath | `.\gradlew.bat :desktop:printTransparencyRuntimeClasspath` | 输出桌面透明性检查脚本所需的完整运行时 classpath |
+| 运行透明性检查 | `.\desktop\run-transparency-check.cmd` | 运行桌面透明性 server/client 联调检查 |
 
 如果你的目的只是开发或发布 Java 模块，推荐直接用上面这组 Java 命令，不需要先构建 Node.js。

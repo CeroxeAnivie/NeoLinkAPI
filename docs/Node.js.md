@@ -22,7 +22,7 @@ Node.js 版适合脚本、服务端和自动化集成。接入时先明确一个
 
 - `localDomainName` 默认是 `localhost`
 - TCP 默认启用
-- UDP 默认启用
+- UDP 默认启用；当前 Node.js 实现的 UDP 转发只监听 IPv4，本地下游 UDP 服务请使用 IPv4 地址，例如 `127.0.0.1` 或 IPv4 局域网地址
 - 代理默认直连
 - 心跳默认 `1000` 毫秒
 - PPv2 默认关闭
@@ -195,3 +195,4 @@ api.setOnDisconnect((protocol, source, target) => {
 - 不要在最小调用里重复写默认值，除非你想明确覆盖配置。
 - `getTunAddr()` 返回 Promise，必须 `await`。
 - 运行中切换协议用 `updateRuntimeProtocolFlags(...)`，启动前默认 TCP/UDP 已启用。
+- Node.js 的 UDP 转发只支持 IPv4；如果本地下游 UDP 服务只监听 `::1` 或其他 IPv6 地址，请改为监听 IPv4 地址或在配置中使用 IPv4 地址。
