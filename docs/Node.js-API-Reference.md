@@ -108,12 +108,14 @@ export class NeoLinkAPI
 | `getTunAddr()` | `Promise<string>` | 等待并返回服务端下发的远程连接地址。 |
 | `getHookSocket()` | `SecureSocket \| null` | 返回当前控制链路使用的安全 socket。 |
 | `getUpdateURL()` | `string \| null` | 返回版本不兼容流程中服务端下发的更新地址。 |
+| `isPPV2Enabled()` | `boolean` | 返回当前 PPv2 透传开关；运行中读取运行期配置，未运行时读取初始配置。 |
 
 ### 实例方法 — 运行时协议切换
 
 | 签名 | 返回 | 说明 |
 |------|------|------|
 | `updateRuntimeProtocolFlags(tcpEnabled: boolean, udpEnabled: boolean)` | `Promise<void>` | 运行期向服务端请求切换 TCP/UDP 能力。 |
+| `setPPV2Enabled(value?: boolean)` | `this` | 运行期切换 PPv2 透传；只影响之后新建的 TCP 连接。 |
 
 ### 实例方法 — 回调注册
 

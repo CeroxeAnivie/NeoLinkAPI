@@ -11,14 +11,14 @@ repositories {
 }
 
 group = "top.ceroxe.api"
-version = "7.1.9"
+version = "7.1.12"
 
 val apiVersion = version.toString()
 
 nmcpAggregation {
     centralPortal {
-        username = providers.gradleProperty("centralUsername").orNull.orEmpty()
-        password = providers.gradleProperty("centralPassword").orNull.orEmpty()
+        username.set(providers.gradleProperty("centralUsername"))
+        password.set(providers.gradleProperty("centralPassword"))
         publishingType = "AUTOMATIC"
         publicationName = "NeoLinkAPI-$version"
         validationTimeout = Duration.of(30, ChronoUnit.MINUTES)
@@ -49,6 +49,14 @@ subprojects {
         }
         withSourcesJar()
         withJavadocJar()
+    }
+
+    if (project.name == "desktop") {
+        extensions.configure<SourceSetContainer>("sourceSets") {
+            named("main") {
+                java.srcDir(rootProject.layout.projectDirectory.dir("common/src/main/java"))
+            }
+        }
     }
 
     tasks.withType<JavaCompile>().configureEach {
@@ -169,6 +177,7 @@ subprojects {
 
 project(":shared") {
     dependencies {
+        "api"("com.google.code.gson:gson:2.11.0")
         "testImplementation"("org.junit.jupiter:junit-jupiter:5.10.2")
     }
 }
@@ -178,7 +187,6 @@ project(":desktop") {
         "api"(project(":shared"))
         "api"("top.ceroxe.api:ceroxe-core:2.0.0")
         "implementation"("top.ceroxe.api:ceroxe-detector:2.0.0")
-        "implementation"("com.google.code.gson:gson:2.11.0")
         "testImplementation"("org.junit.jupiter:junit-jupiter:5.10.2")
     }
 

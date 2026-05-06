@@ -18,7 +18,7 @@ test('NeoLinkCfg keeps Java defaults and fluent setters', () => {
     assert.equal(cfg.isPPV2Enabled(), false);
     assert.equal(cfg.isDebugMsg(), false);
     assert.equal(cfg.getLanguage(), NeoLinkCfg.ZH_CH);
-    assert.equal(NeoLinkAPI.version(), '7.1.9');
+    assert.equal(NeoLinkAPI.version(), '7.1.12');
 
     cfg.setRemoteDomainName('nps.example.com')
         .setHookPort(30001)
@@ -51,6 +51,31 @@ test('NeoLinkCfg keeps Java defaults and fluent setters', () => {
     assert.equal(cfg.getLanguage(), NeoLinkCfg.EN_US);
     assert.equal(cfg.getClientVersion(), '6.0.2-test');
     assert.equal(cfg.isDebugMsg(), true);
+});
+
+test('NeoLinkAPI PPv2 switch mirrors config defaults and hot-updates runtime config', () => {
+    const cfg = new NeoLinkCfg('top.ceroxe.example', 44801, 44802, 'key', 25565);
+    const api = new NeoLinkAPI(cfg);
+
+    assert.equal(api.isPPV2Enabled(), false);
+    assert.equal(api.setPPV2Enabled(), api);
+    assert.equal(api.isPPV2Enabled(), true);
+    assert.equal(cfg.isPPV2Enabled(), true);
+
+    const runtimeCfg = cfg.copy().setPPV2Enabled(false);
+    const apiInternals = api as unknown as { runtimeCfg: NeoLinkCfg | null; running: boolean };
+    apiInternals.runtimeCfg = runtimeCfg;
+    apiInternals.running = true;
+
+    assert.equal(api.isPPV2Enabled(), false);
+    api.setPPV2Enabled(true);
+    assert.equal(cfg.isPPV2Enabled(), true);
+    assert.equal(runtimeCfg.isPPV2Enabled(), true);
+
+    api.setPPV2Enabled(false);
+    assert.equal(cfg.isPPV2Enabled(), false);
+    assert.equal(runtimeCfg.isPPV2Enabled(), false);
+    assert.equal(api.isPPV2Enabled(), false);
 });
 
 test('NodeFetcher parses NKM payload with Java-compatible defaults', () => {
@@ -96,7 +121,7 @@ test('package exposes an ESM-compatible entry point', async () => {
     const esmModule = await import(pathToFileURL(path.resolve(__dirname, '../index.js')).href);
     assert.equal(typeof esmModule.NeoLinkAPI, 'function');
     assert.equal(typeof esmModule.NeoLinkCfg, 'function');
-    assert.equal(esmModule.VERSION, '7.1.9');
+    assert.equal(esmModule.VERSION, '7.1.12');
 });
 
 test('package exposes a CommonJS-compatible entry point', () => {
@@ -104,5 +129,5 @@ test('package exposes a CommonJS-compatible entry point', () => {
     const cjsModule = requireFromTest(path.resolve(__dirname, '../../dist-cjs/index.js'));
     assert.equal(typeof cjsModule.NeoLinkAPI, 'function');
     assert.equal(typeof cjsModule.NeoLinkCfg, 'function');
-    assert.equal(cjsModule.VERSION, '7.1.9');
+    assert.equal(cjsModule.VERSION, '7.1.12');
 });

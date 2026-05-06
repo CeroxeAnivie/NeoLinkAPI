@@ -80,18 +80,6 @@ public final class NodeFetcher {
         }
     }
 
-    private static String readUtf8(InputStream inputStream) throws IOException {
-        StringBuilder content = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
-            char[] buffer = new char[4096];
-            int read;
-            while ((read = reader.read(buffer)) != -1) {
-                content.append(buffer, 0, read);
-            }
-        }
-        return content.toString();
-    }
-
     static Map<String, NeoNode> parseNodeMap(String json) throws IOException {
         JsonElement root;
         try {
@@ -126,6 +114,18 @@ public final class NodeFetcher {
             }
         }
         return result;
+    }
+
+    private static String readUtf8(InputStream inputStream) throws IOException {
+        StringBuilder content = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
+            char[] buffer = new char[4096];
+            int read;
+            while ((read = reader.read(buffer)) != -1) {
+                content.append(buffer, 0, read);
+            }
+        }
+        return content.toString();
     }
 
     private static URI parseEndpoint(String url) {

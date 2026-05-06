@@ -436,6 +436,19 @@ export class NeoLinkAPI {
         return this;
     }
 
+    isPPV2Enabled(): boolean {
+        return this.running && this.runtimeCfg
+            ? this.runtimeCfg.isPPV2Enabled()
+            : this.cfg.isPPV2Enabled();
+    }
+
+    setPPV2Enabled(value = true): this {
+        this.cfg.setPPV2Enabled(value);
+        this.runtimeCfg?.setPPV2Enabled(value);
+        this.debug(`Runtime PPv2 passthrough switched. ppv2Enabled=${Boolean(value)}`);
+        return this;
+    }
+
     async updateRuntimeProtocolFlags(tcpEnabled: boolean, udpEnabled: boolean): Promise<void> {
         const requestedFlags = {tcpEnabled, udpEnabled};
         const activeHookSocket = this.requireActiveHookSocket();

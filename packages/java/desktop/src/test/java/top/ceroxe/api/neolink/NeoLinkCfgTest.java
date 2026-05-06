@@ -3,14 +3,41 @@ package top.ceroxe.api.neolink;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @DisplayName("NeoLinkCfg 公开 API 配置")
 class NeoLinkCfgTest {
+    private static Field declaredField(Class<?> type, String name) throws NoSuchFieldException {
+        Class<?> current = type;
+        while (current != null) {
+            try {
+                return current.getDeclaredField(name);
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(name);
+    }
+
+    private static Method declaredMethod(Class<?> type, String name, Class<?>... parameterTypes)
+            throws NoSuchMethodException {
+        Class<?> current = type;
+        while (current != null) {
+            try {
+                return current.getDeclaredMethod(name, parameterTypes);
+            } catch (NoSuchMethodException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchMethodException(name);
+    }
+
     @Test
     @DisplayName("构造函数强制要求远程域名、Hook 端口、连接端口、密钥和本地端口")
     void constructorRequiresAllMandatoryValues() {
@@ -41,7 +68,7 @@ class NeoLinkCfgTest {
         assertFalse(cfg.isDebugMsg());
         assertEquals(NeoLinkCfg.ZH_CH, cfg.getLanguage());
         assertEquals(NeoLinkAPI.version(), cfg.getClientVersion());
-        assertEquals("7.1.9", NeoLinkAPI.version());
+        assertEquals("7.1.12", NeoLinkAPI.version());
     }
 
     @Test
@@ -103,7 +130,40 @@ class NeoLinkCfgTest {
         assertSame(neoLink, neoLink.setUnsupportedVersionDecision(response -> false));
         assertSame(neoLink, neoLink.setDebugSink((message, cause) -> {
         }));
+        assertFalse(neoLink.isPPV2Enabled());
+        assertSame(neoLink, neoLink.setPPV2Enabled());
+        assertTrue(neoLink.isPPV2Enabled());
+        assertSame(neoLink, neoLink.setPPV2Enabled(false));
+        assertFalse(neoLink.isPPV2Enabled());
         assertThrows(IllegalArgumentException.class, () -> neoLink.start(0));
+    }
+
+    @Test
+    @DisplayName("NeoLinkAPI 的 PPv2 开关应同步写入当前运行期配置")
+    void neoLinkPPV2SwitchUpdatesRuntimeConfig() throws Exception {
+        NeoLinkCfg cfg = new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "key", 25565);
+        NeoLinkAPI neoLink = new NeoLinkAPI(cfg);
+        NeoLinkCfg runtimeCfg = cfg.copy();
+
+        var runtimeCfgField = declaredField(NeoLinkAPI.class, "runtimeCfg");
+        runtimeCfgField.setAccessible(true);
+        runtimeCfgField.set(neoLink, runtimeCfg);
+
+        var runningField = declaredField(NeoLinkAPI.class, "running");
+        runningField.setAccessible(true);
+        ((AtomicBoolean) runningField.get(neoLink)).set(true);
+
+        assertFalse(neoLink.isPPV2Enabled());
+
+        neoLink.setPPV2Enabled(true);
+        assertTrue(cfg.isPPV2Enabled());
+        assertTrue(runtimeCfg.isPPV2Enabled());
+        assertTrue(neoLink.isPPV2Enabled());
+
+        neoLink.setPPV2Enabled(false);
+        assertFalse(cfg.isPPV2Enabled());
+        assertFalse(runtimeCfg.isPPV2Enabled());
+        assertFalse(neoLink.isPPV2Enabled());
     }
 
     @Test
@@ -115,11 +175,12 @@ class NeoLinkCfgTest {
         AtomicReference<InetSocketAddress> sourceRef = new AtomicReference<>();
         AtomicReference<InetSocketAddress> targetRef = new AtomicReference<>();
 
-        var runtimeCfgField = NeoLinkAPI.class.getDeclaredField("runtimeCfg");
+        var runtimeCfgField = declaredField(NeoLinkAPI.class, "runtimeCfg");
         runtimeCfgField.setAccessible(true);
         runtimeCfgField.set(neoLink, cfg.copy());
 
-        Method emitConnectionEvent = NeoLinkAPI.class.getDeclaredMethod(
+        Method emitConnectionEvent = declaredMethod(
+                NeoLinkAPI.class,
                 "emitConnectionEvent",
                 NeoLinkAPI.ConnectionEventHandler.class,
                 NeoLinkAPI.TransportProtocol.class,
@@ -150,7 +211,7 @@ class NeoLinkCfgTest {
         NeoLinkCfg cfg = new NeoLinkCfg("top.ceroxe.example", 44801, 44802, "key", 25565);
         NeoLinkAPI neoLink = new NeoLinkAPI(cfg);
 
-        var runtimeCfgField = NeoLinkAPI.class.getDeclaredField("runtimeCfg");
+        var runtimeCfgField = declaredField(NeoLinkAPI.class, "runtimeCfg");
         runtimeCfgField.setAccessible(true);
         runtimeCfgField.set(neoLink, cfg.copy());
 
@@ -166,7 +227,7 @@ class NeoLinkCfgTest {
                 .setUDPEnabled(true);
         NeoLinkAPI neoLink = new NeoLinkAPI(cfg);
 
-        var runtimeCfgField = NeoLinkAPI.class.getDeclaredField("runtimeCfg");
+        var runtimeCfgField = declaredField(NeoLinkAPI.class, "runtimeCfg");
         runtimeCfgField.setAccessible(true);
         runtimeCfgField.set(neoLink, cfg.copy());
 

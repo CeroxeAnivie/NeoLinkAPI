@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "name": "NeoLinkAPI protocol contract",
-  "protocolVersion": "7.1.9",
+  "protocolVersion": "7.1.12",
   "defaults": {
     "localDomainName": "localhost",
     "hostHookPort": 44801,

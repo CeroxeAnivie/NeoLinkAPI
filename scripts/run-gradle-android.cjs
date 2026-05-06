@@ -11,12 +11,13 @@ const repoRoot = path.resolve(__dirname, '..');
 const androidProjectDir = path.join(repoRoot, 'packages', 'java', 'android', 'neolinkapi-android');
 const wrapper = path.join(androidProjectDir, process.platform === 'win32' ? 'gradlew.bat' : 'gradlew');
 const userArgs = process.argv.slice(3);
+const usesNmcpPublish = task.startsWith('nmcpPublish') || task.startsWith('publishAllPublicationsToCentral');
 const gradleArgs = [
     '-p',
     androidProjectDir,
     '--daemon',
     '--build-cache',
-    '--configuration-cache',
+    usesNmcpPublish ? '--no-configuration-cache' : '--configuration-cache',
     task,
     ...userArgs
 ];

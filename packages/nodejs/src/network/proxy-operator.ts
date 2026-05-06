@@ -128,7 +128,12 @@ export function ipv6ToBytes(host: string): Buffer {
         throw new Error(`Invalid IPv6 address: ${host}`);
     }
     const out = Buffer.alloc(16);
-    parts.forEach((part, index) => out.writeUInt16BE(parseInt(part, 16), index * 2));
+    parts.forEach((part, index) => {
+        if (!/^[0-9a-fA-F]{1,4}$/.test(part)) {
+            throw new Error(`Invalid IPv6 address: ${host}`);
+        }
+        out.writeUInt16BE(parseInt(part, 16), index * 2);
+    });
     return out;
 }
 

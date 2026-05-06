@@ -23,12 +23,12 @@ plugins {
 apply plugin: 'com.android.library'
 
 group = 'top.ceroxe.api'
-version = '7.1.9'
+version = '7.1.12'
 
 nmcp {
     publishAllPublicationsToCentralPortal {
-        username = providers.gradleProperty("centralUsername")
-        password = providers.gradleProperty("centralPassword")
+        username.set(providers.gradleProperty("centralUsername"))
+        password.set(providers.gradleProperty("centralPassword"))
         publishingType = "AUTOMATIC"
         publicationName = "NeoLinkAPI-Android-${project.version}"
         validationTimeout = Duration.ofMinutes(30)
@@ -58,6 +58,7 @@ android {
         main {
             java.srcDirs = [
                     'src/main/java',
+                    '../../common/src/main/java',
                     '../../shared/src/main/java'
             ]
             resources.srcDirs = [
@@ -91,7 +92,7 @@ android {
 
 dependencies {
     api 'top.ceroxe.api:ceroxe-core-android:2.0.0'
-    implementation 'com.google.code.gson:gson:2.11.0'
+    api 'com.google.code.gson:gson:2.11.0'
 
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.3.0'
@@ -126,7 +127,7 @@ def releaseJavadoc = tasks.register('releaseJavadoc', Javadoc) {
     dependsOn extractAarClasses
     source = android.sourceSets.main.java.srcDirs
     classpath = files(android.getBootClasspath())
-    classpath += files(layout.buildDirectory.dir('tmp/aar-classes').get().asFile.listFiles())
+    classpath += fileTree(layout.buildDirectory.dir('tmp/aar-classes'))
     classpath += files(configurations.releaseCompileClasspath.files.findAll { !it.name.endsWith('.aar') })
     destinationDir = layout.buildDirectory.dir('docs/javadoc').get().asFile
     options.encoding = 'UTF-8'

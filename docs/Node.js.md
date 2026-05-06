@@ -183,6 +183,8 @@ api.setOnDisconnect((protocol, source, target) => {
 | `isActive()` | 返回当前实例是否仍处于运行状态 |
 | `getUpdateURL()` | 版本不兼容且选择更新后，返回服务端协商出的更新地址；没有则为 `null` |
 | `updateRuntimeProtocolFlags(tcpEnabled, udpEnabled)` | 运行中向服务端请求切换 TCP/UDP 能力；启动前不用它，直接用配置默认值或 setter |
+| `isPPV2Enabled()` | 查询当前 PPv2 透传状态；运行中读取运行期配置，未运行时读取初始配置 |
+| `setPPV2Enabled(value = true)` | 运行中切换 PPv2 透传；不通知服务端，只影响之后新建的 TCP 连接 |
 | `close()` | 请求停止隧道并关闭控制/转发连接，适合绑定 `SIGINT`/`SIGTERM` |
 
 `NeoNode` 表示 NKM 节点。常用方法是 `getName()`、`getRealId()`、`getAddress()`、`getHookPort()`、`getConnectPort()` 和 `toCfg(...)`。
@@ -195,4 +197,5 @@ api.setOnDisconnect((protocol, source, target) => {
 - 不要在最小调用里重复写默认值，除非你想明确覆盖配置。
 - `getTunAddr()` 返回 Promise，必须 `await`。
 - 运行中切换协议用 `updateRuntimeProtocolFlags(...)`，启动前默认 TCP/UDP 已启用。
+- 运行中切换 PPv2 用 `api.setPPV2Enabled(...)`；已建立的 TCP 连接保持创建时的 PPv2 行为，后续新 TCP 连接使用新值。
 - Node.js 的 UDP 转发只支持 IPv4；如果本地下游 UDP 服务只监听 `::1` 或其他 IPv6 地址，请改为监听 IPv4 地址或在配置中使用 IPv4 地址。

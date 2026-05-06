@@ -2,7 +2,9 @@
 
 Android 版适合直接嵌入 App、前台服务或其他移动端宿主。接入前先记住一条硬约束：`NeoLinkAPI.start()` 是长运行阻塞方法，而且 **不能在主线程调用**。
 
-Android 产物坐标是 `top.ceroxe.api:neolinkapi-android:7.1.9`。不要在 Android 项目中依赖桌面 JVM 产物 `top.ceroxe.api:neolinkapi-desktop`。
+Android 产物坐标是 `top.ceroxe.api:neolinkapi-android:7.1.12`。共享模型与 NKM 节点工具坐标是 `top.ceroxe.api:neolinkapi-shared:7.1.12`，其中包含 `NodeFetcher`、`NeoNode` 和 `NeoLinkCfg`。不要在 Android 项目中依赖桌面 JVM 产物 `top.ceroxe.api:neolinkapi-desktop`。
+
+源码层面，Android 产物会编译 `packages/java/common` 中的内部运行时实现，以及 `packages/java/shared` 中的公开公共 API。根目录 `shared/` 不是 Java 模块，它只保存跨语言协议契约、fixtures 和版本元数据。
 
 ## 最小调用
 
@@ -137,6 +139,8 @@ Android 版常用对象和 Java 版保持一致：
 ## 构建与测试命令
 
 ### 在仓库根目录执行
+
+PPv2 默认跟随 `NeoLinkCfg`，而 `NeoLinkCfg` 的默认值是 `false`。运行中可以通过 `api.setPPV2Enabled(...)` 热切换；它只影响之后新建的 TCP 连接，已经建立的连接保持创建时的 PPv2 行为。
 
 | 目标 | 命令 | 作用 |
 | --- | --- | --- |

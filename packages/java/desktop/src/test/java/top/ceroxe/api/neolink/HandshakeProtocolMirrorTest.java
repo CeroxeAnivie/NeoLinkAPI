@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("Handshake protocol mirror")
 class HandshakeProtocolMirrorTest {
     private static Exception classify(String response) throws Exception {
-        Method method = NeoLinkAPI.class.getDeclaredMethod("classifyStartupHandshakeFailure", String.class);
+        Method method = declaredMethod(NeoLinkAPI.class, "classifyStartupHandshakeFailure", String.class);
         method.setAccessible(true);
         try {
             return (Exception) method.invoke(null, response);
@@ -23,6 +23,19 @@ class HandshakeProtocolMirrorTest {
             }
             throw e;
         }
+    }
+
+    private static Method declaredMethod(Class<?> type, String name, Class<?>... parameterTypes)
+            throws NoSuchMethodException {
+        Class<?> current = type;
+        while (current != null) {
+            try {
+                return current.getDeclaredMethod(name, parameterTypes);
+            } catch (NoSuchMethodException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchMethodException(name);
     }
 
     @Test
@@ -46,7 +59,7 @@ class HandshakeProtocolMirrorTest {
         );
         assertInstanceOf(
                 UnSupportHostVersionException.class,
-                classify("不受支持的版本，应该为:7.1.9")
+                classify("不受支持的版本，应该为:7.1.12")
         );
         assertNull(classify("Connection build up successfully"));
     }

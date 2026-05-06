@@ -9,6 +9,7 @@ import top.ceroxe.api.neolink.exception.UnRecognizedKeyException;
 import top.ceroxe.api.neolink.exception.UnSupportHostVersionException;
 
 import java.io.IOException;
+import java.net.InetSocketAddress;
 
 final class NeoLinkProtocolSupport {
     private static final String NO_UPDATE_URL_RESPONSE = "false";
@@ -97,6 +98,45 @@ final class NeoLinkProtocolSupport {
         return extractBetween(message, ZH_TUN_ADDR_PREFIX, ZH_TUN_ADDR_SUFFIX);
     }
 
+    static InetSocketAddress parseRemoteAddress(String remoteAddress, String unknownHost) {
+        if (remoteAddress == null || remoteAddress.isBlank()) {
+            return InetSocketAddress.createUnresolved(unknownHost, 0);
+        }
+
+        String value = remoteAddress.trim();
+        if (value.startsWith("/")) {
+            value = value.substring(1);
+        }
+
+        if (value.startsWith("[")) {
+            int closingBracket = value.indexOf(']');
+            if (closingBracket > 1) {
+                String host = value.substring(1, closingBracket);
+                int port = parsePortAfter(value, closingBracket + 1);
+                return InetSocketAddress.createUnresolved(host, port);
+            }
+        }
+
+        int lastColon = value.lastIndexOf(':');
+        if (lastColon > 0 && lastColon + 1 < value.length()) {
+            String host = value.substring(0, lastColon);
+            int port = parsePort(value.substring(lastColon + 1));
+            if (port >= 0) {
+                return InetSocketAddress.createUnresolved(host, port);
+            }
+        }
+        return InetSocketAddress.createUnresolved(value, 0);
+    }
+
+    static String maskClientInfo(String clientInfo) {
+        String[] parts = clientInfo.split(";", -1);
+        if (parts.length < 4) {
+            return clientInfo;
+        }
+        parts[2] = maskSecret(parts[2]);
+        return String.join(";", parts);
+    }
+
     private static boolean isUnsupportedVersionResponse(String response) {
         for (LanguageData languageData : LanguageData.all()) {
             if (startsWithProtocolText(response, languageData.unsupportedVersionPrefix)) {
@@ -176,5 +216,32 @@ final class NeoLinkProtocolSupport {
         }
         String address = value.substring(addressStart, end).trim();
         return address.isEmpty() ? null : address;
+    }
+
+    private static int parsePortAfter(String value, int index) {
+        if (index >= value.length() || value.charAt(index) != ':' || index + 1 >= value.length()) {
+            return 0;
+        }
+        int port = parsePort(value.substring(index + 1));
+        return port >= 0 ? port : 0;
+    }
+
+    private static int parsePort(String value) {
+        try {
+            int port = Integer.parseInt(value);
+            return port >= 0 && port <= 65535 ? port : -1;
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
+    private static String maskSecret(String secret) {
+        if (secret == null || secret.isBlank()) {
+            return "";
+        }
+        if (secret.length() <= 4) {
+            return "****";
+        }
+        return secret.substring(0, 2) + "****" + secret.substring(secret.length() - 2);
     }
 }

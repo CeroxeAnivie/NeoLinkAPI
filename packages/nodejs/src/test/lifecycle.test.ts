@@ -9,7 +9,7 @@ test('NeoLinkAPI performs startup handshake and captures tunnel address', async 
         const socket = await server.accept();
         try {
             const handshake = await socket.receiveStr(2000);
-            assert.equal(handshake, 'zh;7.1.9;key;');
+            assert.equal(handshake, 'zh;7.1.12;key;');
             await socket.sendStr('Connection build up successfully');
             await socket.sendStr('Use the address: tunnel.example.test:45678 to start up connections.');
             await new Promise((resolve) => setTimeout(resolve, 100));
