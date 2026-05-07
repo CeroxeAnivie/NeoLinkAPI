@@ -11,7 +11,7 @@ repositories {
 }
 
 group = "top.ceroxe.api"
-version = "7.1.12"
+version = "7.2.0"
 
 val apiVersion = version.toString()
 

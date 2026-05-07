@@ -18,7 +18,7 @@ test('NeoLinkCfg keeps Java defaults and fluent setters', () => {
     assert.equal(cfg.isPPV2Enabled(), false);
     assert.equal(cfg.isDebugMsg(), false);
     assert.equal(cfg.getLanguage(), NeoLinkCfg.ZH_CH);
-    assert.equal(NeoLinkAPI.version(), '7.1.12');
+    assert.equal(NeoLinkAPI.version(), '7.2.0');
 
     cfg.setRemoteDomainName('nps.example.com')
         .setHookPort(30001)
@@ -121,7 +121,7 @@ test('package exposes an ESM-compatible entry point', async () => {
     const esmModule = await import(pathToFileURL(path.resolve(__dirname, '../index.js')).href);
     assert.equal(typeof esmModule.NeoLinkAPI, 'function');
     assert.equal(typeof esmModule.NeoLinkCfg, 'function');
-    assert.equal(esmModule.VERSION, '7.1.12');
+    assert.equal(esmModule.VERSION, '7.2.0');
 });
 
 test('package exposes a CommonJS-compatible entry point', () => {
@@ -129,5 +129,5 @@ test('package exposes a CommonJS-compatible entry point', () => {
     const cjsModule = requireFromTest(path.resolve(__dirname, '../../dist-cjs/index.js'));
     assert.equal(typeof cjsModule.NeoLinkAPI, 'function');
     assert.equal(typeof cjsModule.NeoLinkCfg, 'function');
-    assert.equal(cjsModule.VERSION, '7.1.12');
+    assert.equal(cjsModule.VERSION, '7.2.0');
 });

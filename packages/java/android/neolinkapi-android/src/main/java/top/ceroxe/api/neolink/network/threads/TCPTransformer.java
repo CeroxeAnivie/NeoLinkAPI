@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream;
 import java.net.Socket;
 import java.util.Objects;
 import java.util.function.BiConsumer;
+import java.util.function.LongConsumer;
 
 import static top.ceroxe.api.neolink.network.InternetOperator.shutdownOutput;
 
@@ -42,12 +43,15 @@ public class TCPTransformer implements Runnable {
     };
     private static final int PPV2_MIN_HEADER_LENGTH = 16;
     private static final int BUFFER_LENGTH = 65535;
+    private static final LongConsumer NOOP_TRAFFIC_SINK = bytes -> {
+    };
     private final Socket plainSocket;
     private final SecureSocket secureSocket;
     private final int mode;
     private final boolean enableProxyProtocol;
     private final boolean debugEnabled;
     private final BiConsumer<String, Throwable> debugSink;
+    private final LongConsumer trafficSink;
 
     // 每条转发链路独占缓冲区，避免多连接并发时共享数组导致数据串扰。
     private final byte[] buffer = new byte[BUFFER_LENGTH];
@@ -72,12 +76,24 @@ public class TCPTransformer implements Runnable {
             boolean debugEnabled,
             BiConsumer<String, Throwable> debugSink
     ) {
+        this(secureSender, localReceiver, enableProxyProtocol, debugEnabled, debugSink, NOOP_TRAFFIC_SINK);
+    }
+
+    public TCPTransformer(
+            SecureSocket secureSender,
+            Socket localReceiver,
+            boolean enableProxyProtocol,
+            boolean debugEnabled,
+            BiConsumer<String, Throwable> debugSink,
+            LongConsumer trafficSink
+    ) {
         this.secureSocket = secureSender;
         this.plainSocket = localReceiver;
         this.mode = MODE_NEO_TO_LOCAL;
         this.enableProxyProtocol = enableProxyProtocol;
         this.debugEnabled = debugEnabled;
         this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
+        this.trafficSink = Objects.requireNonNull(trafficSink, "trafficSink");
     }
 
     /**
@@ -100,12 +116,24 @@ public class TCPTransformer implements Runnable {
             boolean debugEnabled,
             BiConsumer<String, Throwable> debugSink
     ) {
+        this(localSender, secureReceiver, enableProxyProtocol, debugEnabled, debugSink, NOOP_TRAFFIC_SINK);
+    }
+
+    public TCPTransformer(
+            Socket localSender,
+            SecureSocket secureReceiver,
+            boolean enableProxyProtocol,
+            boolean debugEnabled,
+            BiConsumer<String, Throwable> debugSink,
+            LongConsumer trafficSink
+    ) {
         this.plainSocket = localSender;
         this.secureSocket = secureReceiver;
         this.mode = MODE_LOCAL_TO_NEO;
         this.enableProxyProtocol = enableProxyProtocol;
         this.debugEnabled = debugEnabled;
         this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
+        this.trafficSink = Objects.requireNonNull(trafficSink, "trafficSink");
     }
 
     private static void defaultDebugSink(String message, Throwable cause) {
@@ -129,6 +157,7 @@ public class TCPTransformer implements Runnable {
             while ((bytesRead = inputFromLocal.read(buffer)) != -1) {
                 debug("Forwarding TCP bytes from local service to NeoProxyServer. bytes=" + bytesRead);
                 secureSocket.sendBytes(buffer, 0, bytesRead);
+                emitTraffic(bytesRead);
             }
             debug("Local TCP stream reached EOF. Sending NeoProxyServer EOF frame.");
             secureSocket.sendBytes(null); // 发送结束信号。
@@ -156,6 +185,7 @@ public class TCPTransformer implements Runnable {
                 byte[] forwardData = proxyProtocolStripper.accept(data);
                 if (forwardData != null && forwardData.length > 0) {
                     outputToLocal.write(forwardData);
+                    emitTraffic(forwardData.length);
                 }
 
                 // 不再显式 flush()，因为 SocketOutputStream 默认会直接发送，这里也没有额外 Buffer。
@@ -164,6 +194,7 @@ public class TCPTransformer implements Runnable {
             byte[] trailingFirstFrame = proxyProtocolStripper.finish();
             if (trailingFirstFrame.length > 0) {
                 outputToLocal.write(trailingFirstFrame);
+                emitTraffic(trailingFirstFrame.length);
             }
             debug("NeoProxyServer TCP stream reached EOF.");
             shutdownOutput(plainSocket);
@@ -229,6 +260,17 @@ public class TCPTransformer implements Runnable {
             debugSink.accept(message, cause);
         } catch (RuntimeException ignored) {
             // Debug callbacks are observational and must not disturb forwarding.
+        }
+    }
+
+    private void emitTraffic(long bytes) {
+        if (bytes <= 0) {
+            return;
+        }
+        try {
+            trafficSink.accept(bytes);
+        } catch (RuntimeException ignored) {
+            // Traffic callbacks are observational and must not disturb forwarding.
         }
     }
 

@@ -58,7 +58,7 @@ Java 侧采用平台拆分结构：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi-desktop</artifactId>
-    <version>7.1.12</version>
+    <version>7.2.0</version>
 </dependency>
 ```
 
@@ -68,7 +68,7 @@ Java 侧采用平台拆分结构：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi-shared</artifactId>
-    <version>7.1.12</version>
+    <version>7.2.0</version>
 </dependency>
 ```
 
@@ -78,7 +78,7 @@ Android 产物的 Maven 坐标是：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi-android</artifactId>
-    <version>7.1.12</version>
+    <version>7.2.0</version>
 </dependency>
 ```
 
@@ -102,7 +102,7 @@ npm install neolinkapi
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi-desktop</artifactId>
-    <version>7.1.12</version>
+    <version>7.2.0</version>
 </dependency>
 ```
 
@@ -110,7 +110,7 @@ npm install neolinkapi
 
 ```kotlin
 dependencies {
-    implementation("top.ceroxe.api:neolinkapi-desktop:7.1.12")
+    implementation("top.ceroxe.api:neolinkapi-desktop:7.2.0")
 }
 ```
 
@@ -118,7 +118,7 @@ dependencies {
 
 ```groovy
 dependencies {
-    implementation 'top.ceroxe.api:neolinkapi-desktop:7.1.12'
+    implementation 'top.ceroxe.api:neolinkapi-desktop:7.2.0'
 }
 ```
 

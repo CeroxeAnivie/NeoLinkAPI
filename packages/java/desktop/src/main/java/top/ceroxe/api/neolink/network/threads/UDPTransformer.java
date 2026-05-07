@@ -13,6 +13,7 @@ import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.BiConsumer;
+import java.util.function.LongConsumer;
 
 /**
  * UDP 数据转发器。
@@ -43,6 +44,8 @@ public class UDPTransformer implements Runnable {
     private static final int IPV4_LENGTH = 4;
     private static final int IPV6_LENGTH = 16;
     private static final int BUFFER_LENGTH = 65535;
+    private static final LongConsumer NOOP_TRAFFIC_SINK = bytes -> {
+    };
 
     private final DatagramSocket plainSocket;
     private final SecureSocket secureSocket;
@@ -52,6 +55,7 @@ public class UDPTransformer implements Runnable {
     private final int localPort;
     private final boolean debugEnabled;
     private final BiConsumer<String, Throwable> debugSink;
+    private final LongConsumer trafficSink;
 
     // 每条 UDP 转发链路独占接收缓冲区，避免多连接并发时复用同一数组。
     private final byte[] receiveBuffer = new byte[BUFFER_LENGTH];
@@ -90,6 +94,18 @@ public class UDPTransformer implements Runnable {
             boolean debugEnabled,
             BiConsumer<String, Throwable> debugSink
     ) {
+        this(secureSender, localReceiver, localHost, localPort, debugEnabled, debugSink, NOOP_TRAFFIC_SINK);
+    }
+
+    public UDPTransformer(
+            SecureSocket secureSender,
+            DatagramSocket localReceiver,
+            String localHost,
+            int localPort,
+            boolean debugEnabled,
+            BiConsumer<String, Throwable> debugSink,
+            LongConsumer trafficSink
+    ) {
         this.secureSocket = secureSender;
         this.plainSocket = localReceiver;
         this.mode = MODE_NEO_TO_LOCAL;
@@ -98,6 +114,7 @@ public class UDPTransformer implements Runnable {
         this.localPort = localPort;
         this.debugEnabled = debugEnabled;
         this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
+        this.trafficSink = Objects.requireNonNull(trafficSink, "trafficSink");
     }
 
     /**
@@ -129,6 +146,18 @@ public class UDPTransformer implements Runnable {
             boolean debugEnabled,
             BiConsumer<String, Throwable> debugSink
     ) {
+        this(localSender, secureReceiver, localHost, localPort, debugEnabled, debugSink, NOOP_TRAFFIC_SINK);
+    }
+
+    public UDPTransformer(
+            DatagramSocket localSender,
+            SecureSocket secureReceiver,
+            String localHost,
+            int localPort,
+            boolean debugEnabled,
+            BiConsumer<String, Throwable> debugSink,
+            LongConsumer trafficSink
+    ) {
         this.plainSocket = localSender;
         this.secureSocket = secureReceiver;
         this.mode = MODE_LOCAL_TO_NEO;
@@ -137,6 +166,7 @@ public class UDPTransformer implements Runnable {
         this.localPort = localPort;
         this.debugEnabled = debugEnabled;
         this.debugSink = Objects.requireNonNull(debugSink, "debugSink");
+        this.trafficSink = Objects.requireNonNull(trafficSink, "trafficSink");
     }
 
     /**
@@ -246,6 +276,7 @@ public class UDPTransformer implements Runnable {
                         + ", payloadBytes=" + incomingPacket.getLength()
                         + ", serializedBytes=" + serializedData.length);
                 secureSocket.sendBytes(serializedData);
+                emitTraffic(incomingPacket.getLength());
             }
         } catch (IOException e) {
             debug(e);
@@ -297,6 +328,7 @@ public class UDPTransformer implements Runnable {
                             localPort
                     );
                     plainSocket.send(outgoingPacket);
+                    emitTraffic(datagramPacket.getLength());
                     debug("Forwarded UDP packet to local service. target=" + localHost + ":" + localPort
                             + ", payloadBytes=" + datagramPacket.getLength());
                 }
@@ -343,6 +375,17 @@ public class UDPTransformer implements Runnable {
             debugSink.accept(message, cause);
         } catch (RuntimeException ignored) {
             // Debug 回调只用于观测，不能干扰转发流程。
+        }
+    }
+
+    private void emitTraffic(long bytes) {
+        if (bytes <= 0) {
+            return;
+        }
+        try {
+            trafficSink.accept(bytes);
+        } catch (RuntimeException ignored) {
+            // 流量回调只用于观测，不能干扰转发流程。
         }
     }
 }

@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.LongConsumer;
 
 /**
  * NeoLinkAPI 的唯一隧道控制入口。
@@ -42,6 +43,8 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
     private static final Consumer<String> NOOP_MESSAGE_HANDLER = message -> {
     };
     private static final NeoLinkAPI.ConnectionEventHandler NOOP_CONNECTION_EVENT_HANDLER = (protocol, source, target) -> {
+    };
+    private static final NeoLinkAPI.TrafficEventHandler NOOP_TRAFFIC_EVENT_HANDLER = (protocol, direction, bytes) -> {
     };
     private static final BiConsumer<String, Throwable> NOOP_ERROR_HANDLER = (message, cause) -> {
     };
@@ -75,6 +78,7 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
 
     private volatile NeoLinkAPI.ConnectionEventHandler onConnect = NOOP_CONNECTION_EVENT_HANDLER;
     private volatile NeoLinkAPI.ConnectionEventHandler onDisconnect = NOOP_CONNECTION_EVENT_HANDLER;
+    private volatile NeoLinkAPI.TrafficEventHandler onTraffic = NOOP_TRAFFIC_EVENT_HANDLER;
     private volatile Runnable onConnectNeoFailure = NOOP;
     private volatile Runnable onConnectLocalFailure = NOOP;
     private volatile Consumer<NeoLinkState> onStateChanged = NOOP_STATE_HANDLER;
@@ -451,6 +455,21 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
         return self();
     }
 
+    /**
+     * 设置成功转发业务流量时触发的回调。
+     *
+     * <p>该回调只统计已经成功写入目标端的业务负载字节数，不包含 UDP 序列化头等内部封装。
+     * TCP Neo -> Local 在关闭 PPv2 透传时也只统计剥离 PPv2 后真正交付给本地服务的字节。
+     * 回调异常会被隔离到 debug 通道，绝不影响隧道转发。</p>
+     *
+     * @param onTraffic 回调参数依次为协议、方向和字节数
+     * @return 当前隧道实例，便于链式调用
+     */
+    public NeoLinkAPI setOnTraffic(NeoLinkAPI.TrafficEventHandler onTraffic) {
+        this.onTraffic = Objects.requireNonNull(onTraffic, "onTraffic");
+        return self();
+    }
+
     public NeoLinkAPI setOnConnectNeoFailure(Runnable onConnectNeoFailure) {
         this.onConnectNeoFailure = Objects.requireNonNull(onConnectNeoFailure, "onConnectNeoFailure");
         return self();
@@ -782,14 +801,16 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
                     localServerSocket,
                     runtimeCfg.isPPV2Enabled(),
                     isDebugEnabled(),
-                    this::emitDebug
+                    this::emitDebug,
+                    trafficEmitter(NeoLinkAPI.TransportProtocol.TCP, NeoLinkAPI.TrafficDirection.NEO_TO_LOCAL)
             );
             TCPTransformer localToServerTask = new TCPTransformer(
                     localServerSocket,
                     neoTransferSocket,
                     false,
                     isDebugEnabled(),
-                    this::emitDebug
+                    this::emitDebug,
+                    trafficEmitter(NeoLinkAPI.TransportProtocol.TCP, NeoLinkAPI.TrafficDirection.LOCAL_TO_NEO)
             );
             ExecutorService executor = requireWorkerExecutor();
             Future<?> first = executor.submit(serverToLocalTask);
@@ -841,7 +862,8 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
                     runtimeCfg.getLocalDomainName(),
                     runtimeCfg.getLocalPort(),
                     isDebugEnabled(),
-                    this::emitDebug
+                    this::emitDebug,
+                    trafficEmitter(NeoLinkAPI.TransportProtocol.UDP, NeoLinkAPI.TrafficDirection.LOCAL_TO_NEO)
             );
             UDPTransformer neoToLocalTask = new UDPTransformer(
                     neoTransferSocket,
@@ -849,7 +871,8 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
                     runtimeCfg.getLocalDomainName(),
                     runtimeCfg.getLocalPort(),
                     isDebugEnabled(),
-                    this::emitDebug
+                    this::emitDebug,
+                    trafficEmitter(NeoLinkAPI.TransportProtocol.UDP, NeoLinkAPI.TrafficDirection.NEO_TO_LOCAL)
             );
             ExecutorService executor = requireWorkerExecutor();
             Future<?> first = executor.submit(localToNeoTask);
@@ -1238,6 +1261,28 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
         );
         try {
             handler.accept(protocol, parseRemoteAddress(remoteAddress), target);
+        } catch (RuntimeException e) {
+            debug(e);
+        }
+    }
+
+    private LongConsumer trafficEmitter(
+            NeoLinkAPI.TransportProtocol protocol,
+            NeoLinkAPI.TrafficDirection direction
+    ) {
+        return bytes -> emitTraffic(protocol, direction, bytes);
+    }
+
+    private void emitTraffic(
+            NeoLinkAPI.TransportProtocol protocol,
+            NeoLinkAPI.TrafficDirection direction,
+            long bytes
+    ) {
+        if (bytes <= 0) {
+            return;
+        }
+        try {
+            onTraffic.accept(protocol, direction, bytes);
         } catch (RuntimeException e) {
             debug(e);
         }

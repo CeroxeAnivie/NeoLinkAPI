@@ -78,6 +78,7 @@ public final class NeoLinkAPI implements AutoCloseable
 | `setDebugSink(BiConsumer<String, Throwable> debugSink)`                               | 实例级调试事件接收器。                        |
 | `setOnConnect(ConnectionEventHandler onConnect)`                                      | 转发连接建立时触发。                         |
 | `setOnDisconnect(ConnectionEventHandler onDisconnect)`                                | 转发连接关闭时触发。                         |
+| `setOnTraffic(TrafficEventHandler onTraffic)`                                        | 成功转发业务负载后触发，参数为协议、方向和字节数。         |
 | `setOnConnectNeoFailure(Runnable onConnectNeoFailure)`                                | 数据通道连接 NeoProxyServer 失败时触发。       |
 | `setOnConnectLocalFailure(Runnable onConnectLocalFailure)`                            | TCP 转发连接本地下游服务失败时触发。               |
 
@@ -94,10 +95,27 @@ public interface ConnectionEventHandler {
 
 接收转发连接事件。参数依次为协议类型、公网来源地址、本地下游地址。
 
+#### `NeoLinkAPI.TrafficEventHandler`
+
+```java
+@FunctionalInterface
+public interface TrafficEventHandler {
+    void accept(TransportProtocol protocol, TrafficDirection direction, long bytes);
+}
+```
+
+接收已成功转发的业务流量事件。`bytes` 只包含业务负载：UDP 不包含内部序列化头，TCP 在关闭 PPv2 透传时不包含已剥离的 PPv2 头。
+
 #### `NeoLinkAPI.TransportProtocol`
 
 ```java
 public enum TransportProtocol { TCP, UDP }
+```
+
+#### `NeoLinkAPI.TrafficDirection`
+
+```java
+public enum TrafficDirection { NEO_TO_LOCAL, LOCAL_TO_NEO }
 ```
 
 ---
@@ -269,9 +287,11 @@ IOException
 
 ## 嵌套类型
 
-以下类型由 `NeoLinkAPI` 内部定义，通过 `NeoLinkAPI.TransportProtocol` 和 `NeoLinkAPI.ConnectionEventHandler` 的形式引用：
+以下类型由 `NeoLinkAPI` 内部定义，通过 `NeoLinkAPI.TransportProtocol`、`NeoLinkAPI.TrafficDirection`、`NeoLinkAPI.ConnectionEventHandler` 和 `NeoLinkAPI.TrafficEventHandler` 的形式引用：
 
 | 类型                       | 定义位置         | 说明                    |
 |--------------------------|--------------|-----------------------|
 | `TransportProtocol`      | `NeoLinkAPI` | 枚举，值 `TCP` / `UDP`。   |
+| `TrafficDirection`       | `NeoLinkAPI` | 枚举，值 `NEO_TO_LOCAL` / `LOCAL_TO_NEO`。 |
 | `ConnectionEventHandler` | `NeoLinkAPI` | 函数式接口，接收协议、来源地址、目标地址。 |
+| `TrafficEventHandler`    | `NeoLinkAPI` | 函数式接口，接收协议、方向、业务负载字节数。 |

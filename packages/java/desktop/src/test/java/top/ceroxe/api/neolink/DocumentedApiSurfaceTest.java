@@ -48,13 +48,16 @@ class DocumentedApiSurfaceTest {
         assertMethod(NeoLinkAPI.class, "setDebugSink", BiConsumer.class);
         assertMethod(NeoLinkAPI.class, "setOnConnect", NeoLinkAPI.ConnectionEventHandler.class);
         assertMethod(NeoLinkAPI.class, "setOnDisconnect", NeoLinkAPI.ConnectionEventHandler.class);
+        assertMethod(NeoLinkAPI.class, "setOnTraffic", NeoLinkAPI.TrafficEventHandler.class);
         assertMethod(NeoLinkAPI.class, "setOnConnectNeoFailure", Runnable.class);
         assertMethod(NeoLinkAPI.class, "setOnConnectLocalFailure", Runnable.class);
 
         assertEquals(SecureSocket.class, assertMethod(NeoLinkAPI.class, "getHookSocket").getReturnType());
         assertEquals(NeoLinkState.class, assertMethod(NeoLinkAPI.class, "getState").getReturnType());
         assertEquals(NeoLinkAPI.TransportProtocol.class, NeoLinkAPI.TransportProtocol.TCP.getClass());
+        assertEquals(NeoLinkAPI.TrafficDirection.class, NeoLinkAPI.TrafficDirection.NEO_TO_LOCAL.getClass());
         assertMethod(NeoLinkAPI.ConnectionEventHandler.class, "accept", NeoLinkAPI.TransportProtocol.class, InetSocketAddress.class, InetSocketAddress.class);
+        assertMethod(NeoLinkAPI.TrafficEventHandler.class, "accept", NeoLinkAPI.TransportProtocol.class, NeoLinkAPI.TrafficDirection.class, long.class);
     }
 
     @Test

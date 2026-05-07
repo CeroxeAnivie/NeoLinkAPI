@@ -31,6 +31,8 @@ public class AndroidPublicApiConsumerTest {
         }));
         assertSame(api, api.setOnDisconnect((protocol, source, target) -> {
         }));
+        assertSame(api, api.setOnTraffic((protocol, direction, bytes) -> {
+        }));
         assertSame(api, api.setUnsupportedVersionDecision(response -> false));
         assertSame(api, api.setDebugSink((message, cause) -> {
         }));

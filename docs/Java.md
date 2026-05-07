@@ -2,7 +2,7 @@
 
 Java 版适合直接嵌入业务服务。接入时先明确一个事实：`NeoLinkAPI.start()` 是长运行阻塞方法，它会阻塞到隧道停止、服务端断开、运行期错误，或者其他线程调用 `close()`。
 
-桌面 JVM 产物坐标是 `top.ceroxe.api:neolinkapi-desktop:7.1.12`。共享模型与 NKM 节点工具坐标是 `top.ceroxe.api:neolinkapi-shared:7.1.12`，其中包含 `NodeFetcher`、`NeoNode` 和 `NeoLinkCfg`。Android 产物使用独立坐标 `top.ceroxe.api:neolinkapi-android:7.1.12`，不要在 Android 项目中依赖桌面 JVM 产物。
+桌面 JVM 产物坐标是 `top.ceroxe.api:neolinkapi-desktop:7.2.0`。共享模型与 NKM 节点工具坐标是 `top.ceroxe.api:neolinkapi-shared:7.2.0`，其中包含 `NodeFetcher`、`NeoNode` 和 `NeoLinkCfg`。Android 产物使用独立坐标 `top.ceroxe.api:neolinkapi-android:7.2.0`，不要在 Android 项目中依赖桌面 JVM 产物。
 
 源码层面，`packages/java/shared` 是会发布的 Java 公共 API 模块；`packages/java/common` 是 Desktop 与 Android 共用的内部运行时实现，不单独发布。根目录 `shared/` 只保存跨语言协议契约、fixtures 和版本元数据。
 
@@ -151,6 +151,8 @@ api.setOnConnect((protocol, source, target) ->
         System.out.println("connect " + protocol + " " + source + " -> " + target));
 api.setOnDisconnect((protocol, source, target) ->
         System.out.println("disconnect " + protocol + " " + source + " -> " + target));
+api.setOnTraffic((protocol, direction, bytes) ->
+        System.out.println("traffic " + protocol + " " + direction + " +" + bytes));
 ```
 
 回调参数含义：
@@ -162,6 +164,7 @@ api.setOnDisconnect((protocol, source, target) ->
 | `setOnServerMessage(Consumer<String>)` | `message` 是服务端原始文本消息 | 服务端发送非命令消息时，也包括可能携带公网访问地址的消息 |
 | `setOnConnect(ConnectionEventHandler)` | `protocol` 是 `TCP`/`UDP`，`source` 是公网来源地址，`target` 是本地下游地址 | 单条 TCP/UDP 转发连接建立时 |
 | `setOnDisconnect(ConnectionEventHandler)` | 参数同 `setOnConnect` | 单条 TCP/UDP 转发连接结束时 |
+| `setOnTraffic(TrafficEventHandler)` | `protocol` 是 `TCP`/`UDP`，`direction` 是 `NEO_TO_LOCAL`/`LOCAL_TO_NEO`，`bytes` 是业务负载字节数 | 单条 TCP/UDP 转发链路成功写出业务数据后 |
 | `setOnConnectNeoFailure(Runnable)` | 无参数 | 数据通道连接 NeoProxy/NeoLink 服务端失败时 |
 | `setOnConnectLocalFailure(Runnable)` | 无参数 | TCP 转发连接本地下游服务失败时 |
 | `setUnsupportedVersionDecision(Function<String, Boolean>)` | `response` 是服务端返回的不兼容版本提示；返回 `true` 会继续协商更新地址 | 服务端认为客户端版本不兼容时 |
