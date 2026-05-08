@@ -92,6 +92,7 @@ set "TRANSPARENCY_DEP_DIR=%TRANSPARENCY_BUILD_DIR%\deps"
 set "TRANSPARENCY_MAIN_CLASSES=%TRANSPARENCY_BUILD_DIR%\classes\main"
 set "TRANSPARENCY_TEST_CLASSES=%TRANSPARENCY_BUILD_DIR%\classes\test"
 set "SHARED_SRC_DIR=%PROJECT_DIR%\shared\src\main\java"
+set "COMMON_SRC_DIR=%PROJECT_DIR%\common\src\main\java"
 set "DESKTOP_SRC_DIR=%DESKTOP_DIR%\src\main\java"
 set "TRANSPARENCY_SRC_DIR=%DESKTOP_DIR%\src\test\java\top\ceroxe\api\neolink\transparency"
 set "SHARED_RESOURCES_DIR=%PROJECT_DIR%\shared\src\main\resources"
@@ -182,6 +183,10 @@ if not exist "%SHARED_SRC_DIR%" (
   echo 缺少 source directory: "%SHARED_SRC_DIR%"
   exit /b 1
 )
+if not exist "%COMMON_SRC_DIR%" (
+  echo 缺少 source directory: "%COMMON_SRC_DIR%"
+  exit /b 1
+)
 if not exist "%DESKTOP_SRC_DIR%" (
   echo 缺少 source directory: "%DESKTOP_SRC_DIR%"
   exit /b 1
@@ -251,7 +256,7 @@ if not defined DEPENDENCY_CP (
   exit /b 1
 )
 
-rem The runner only needs desktop/shared main sources plus the dedicated transparency test sources.
+rem The runner only needs desktop/common/shared main sources plus the dedicated transparency test sources.
 rem Avoid compiling the whole test suite and pulling unrelated test runtime dependencies.
 > "%MAIN_ARGS_FILE%" echo -encoding
 >> "%MAIN_ARGS_FILE%" echo UTF-8
@@ -260,9 +265,10 @@ rem Avoid compiling the whole test suite and pulling unrelated test runtime depe
 >> "%MAIN_ARGS_FILE%" echo -cp
 >> "%MAIN_ARGS_FILE%" echo %DEPENDENCY_CP%
 for /r "%SHARED_SRC_DIR%" %%I in (*.java) do >> "%MAIN_ARGS_FILE%" echo %%I
+for /r "%COMMON_SRC_DIR%" %%I in (*.java) do >> "%MAIN_ARGS_FILE%" echo %%I
 for /r "%DESKTOP_SRC_DIR%" %%I in (*.java) do >> "%MAIN_ARGS_FILE%" echo %%I
 
-echo [构建] 使用本地 javac 编译 desktop/shared main sources...
+echo [构建] 使用本地 javac 编译 desktop/common/shared main sources...
 javac @"%MAIN_ARGS_FILE%" > "%MAIN_LOG_FILE%" 2>&1
 if errorlevel 1 (
   echo Local main-source 编译失败。

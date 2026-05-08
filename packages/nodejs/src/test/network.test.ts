@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type {AddressInfo} from 'node:net';
-import {createUdpSocket, deserializeToDatagramPacket, serializeDatagramPacket} from '../network/udp-transformer.js';
+import {
+    BUFFER_LENGTH,
+    createUdpSocket,
+    deserializeToDatagramPacket,
+    serializeDatagramPacket
+} from '../network/udp-transformer.js';
 import {ipv6ToBytes, parseProxySettings} from '../network/proxy-operator.js';
 
 test('UDP datagram serialization rejects malformed packets with diagnostics', () => {
@@ -28,6 +33,20 @@ test('UDP datagram serialization preserves IPv4 and IPv6 endpoints', () => {
         port: 25565
     }));
     assert.deepEqual(ipv6, {data: Buffer.from('world'), address: '2001:db8:0:0:0:0:0:1', port: 25565});
+});
+
+test('UDP datagram serialization accepts Java-compatible maximum payload length', () => {
+    const payload = Buffer.alloc(BUFFER_LENGTH, 0x5A);
+    const serialized = serializeDatagramPacket(payload, {
+        address: '127.0.0.1',
+        port: 19132
+    });
+    const packet = deserializeToDatagramPacket(serialized);
+
+    assert.equal(packet?.data.length, BUFFER_LENGTH);
+    assert.equal(packet?.address, '127.0.0.1');
+    assert.equal(packet?.port, 19132);
+    assert.deepEqual(packet?.data, payload);
 });
 
 test('Node UDP socket factory intentionally creates IPv4 sockets', async () => {

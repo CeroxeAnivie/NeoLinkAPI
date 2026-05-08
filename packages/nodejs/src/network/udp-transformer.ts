@@ -8,6 +8,7 @@ export const SERIALIZED_HEADER_FIXED_LENGTH = 4 + 4 + 4 + 2;
 export const IPV4_LENGTH = 4;
 export const IPV6_LENGTH = 16;
 export const BUFFER_LENGTH = 65535;
+export const SERIALIZATION_BUFFER_LENGTH = SERIALIZED_HEADER_FIXED_LENGTH + IPV6_LENGTH + BUFFER_LENGTH;
 
 export interface DatagramPacket {
     data: Buffer;
@@ -85,8 +86,11 @@ export function serializeDatagramPacket(message: Buffer | Uint8Array, rinfo: {
 }): Buffer {
     const payload = Buffer.from(message);
     const ipBytes = ipToBytes(rinfo.address);
+    if (payload.length > BUFFER_LENGTH) {
+        throw new RangeError(`UDP packet too large for serialization buffer: ${payload.length}`);
+    }
     const totalLength = 4 + 4 + 4 + ipBytes.length + 2 + payload.length;
-    if (totalLength > BUFFER_LENGTH) {
+    if (totalLength > SERIALIZATION_BUFFER_LENGTH) {
         throw new RangeError(`UDP packet too large for serialization buffer: ${totalLength}`);
     }
     const out = Buffer.alloc(totalLength);

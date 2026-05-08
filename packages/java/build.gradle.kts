@@ -190,21 +190,20 @@ project(":desktop") {
         "testImplementation"("org.junit.jupiter:junit-jupiter:5.10.2")
     }
 
+    val sourceSets = extensions.getByType<SourceSetContainer>()
+    val transparencyRuntimeClasspath = objects.fileCollection().from(
+        sourceSets["main"].output,
+        sourceSets["test"].output,
+        sourceSets["test"].runtimeClasspath
+    )
+
     tasks.register("printTransparencyRuntimeClasspath") {
         group = "verification"
         description = "Prints the runtime classpath required by the transparency check launcher."
         dependsOn(tasks.named("testClasses"))
         doLast {
-            val sourceSets = project.extensions.getByType<SourceSetContainer>()
-            val outputEntries = listOf(
-                sourceSets["main"].output,
-                sourceSets["test"].output
-            ).flatMap { it.files }
-
-            val runtimeEntries = sourceSets["test"].runtimeClasspath.files
             val classpathEntries = LinkedHashSet<File>()
-            classpathEntries.addAll(outputEntries)
-            classpathEntries.addAll(runtimeEntries)
+            classpathEntries.addAll(transparencyRuntimeClasspath.files)
 
             println(classpathEntries.joinToString(File.pathSeparator) { it.absolutePath })
         }
