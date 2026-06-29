@@ -1,45 +1,44 @@
 {
-  "name": "neolinkapi-monorepo",
+  "name": "neolinkapi",
   "version": "7.2.0",
-  "private": true,
-  "description": "Monorepo for the Java and Node.js NeoLinkAPI implementations.",
+  "description": "Node.js API client for NeoLink TCP/UDP tunnels.",
+  "author": "Ceroxe",
   "homepage": "https://github.com/CeroxeAnivie/NeoLinkAPI#readme",
+  "bugs": {
+    "url": "https://github.com/CeroxeAnivie/NeoLinkAPI/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/CeroxeAnivie/NeoLinkAPI.git"
   },
-  "bugs": {
-    "url": "https://github.com/CeroxeAnivie/NeoLinkAPI/issues"
+  "type": "module",
+  "main": "dist-cjs/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist-cjs/index.js",
+      "default": "./dist/index.js"
+    }
   },
-  "workspaces": [
-    "packages/nodejs"
+  "files": [
+    "dist",
+    "dist-cjs",
+    "!dist/test",
+    "!dist/test/**",
+    "LICENSE"
   ],
   "scripts": {
-    "sync:version": "node scripts/sync-version.cjs",
-    "check:version": "node scripts/check-version.cjs",
-    "build": "npm run build --workspace packages/nodejs",
-    "test": "npm run test --workspace packages/nodejs",
-    "build:all": "node scripts/run-gradle.cjs build && node scripts/run-gradle-android.cjs build && npm run build --workspace packages/nodejs",
-    "test:all": "node scripts/run-gradle.cjs test && node scripts/run-gradle-android.cjs testDebugUnitTest && npm run test --workspace packages/nodejs",
-    "build:all:offline": "node scripts/run-gradle.cjs build --offline && node scripts/run-gradle-android.cjs build --offline && npm run build --workspace packages/nodejs",
-    "test:all:offline": "node scripts/run-gradle.cjs test --offline && node scripts/run-gradle-android.cjs testDebugUnitTest --offline && npm run test --workspace packages/nodejs",
-    "check:shared": "node -e \"for (const f of ['shared/protocol/neolink-protocol.contract.json','shared/fixtures/nkm/nodes.valid.json','shared/fixtures/handshake/startup-responses.json']) JSON.parse(require('fs').readFileSync(f,'utf8'))\"",
-    "ci:node": "npm run check:version && npm run check:shared && npm run test:nodejs",
-    "ci:java": "npm run test:java",
-    "ci:android": "npm run test:java:android:fast",
-    "ci:all": "npm run ci:node && npm run ci:java && npm run ci:android",
-    "build:nodejs": "npm run build --workspace packages/nodejs",
-    "test:nodejs": "npm run test --workspace packages/nodejs",
-    "build:java": "node scripts/run-gradle.cjs build",
-    "test:java": "node scripts/run-gradle.cjs test",
-    "build:java:offline": "node scripts/run-gradle.cjs build --offline",
-    "test:java:offline": "node scripts/run-gradle.cjs test --offline",
-    "build:java:android": "node scripts/run-gradle-android.cjs build",
-    "test:java:android": "node scripts/run-gradle-android.cjs test",
-    "test:java:android:fast": "node scripts/run-gradle-android.cjs testDebugUnitTest"
+    "build": "node scripts/clean-dist.cjs && tsc -p tsconfig.json && tsc -p tsconfig.cjs.json && node scripts/write-cjs-package.cjs",
+    "test": "npm run build && node --test dist/test/*.js"
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^6.0.3"
   },
   "license": "MIT"
 }
