@@ -1,11 +1,10 @@
 package top.ceroxe.api.neolink;
 
-import top.ceroxe.api.OshiUtils;
 import top.ceroxe.api.neolink.util.Debugger;
 
 import java.net.InetSocketAddress;
+import java.util.Locale;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * Desktop JVM entry point for NeoLinkAPI.
@@ -45,12 +44,17 @@ public final class NeoLinkAPI extends NeoLinkAPIBase {
 
     @Override
     protected String platformUpdateClientType() {
-        return OshiUtils.isWindows() ? WINDOWS_UPDATE_CLIENT_TYPE : DEFAULT_UPDATE_CLIENT_TYPE;
+        return isWindowsRuntime() ? WINDOWS_UPDATE_CLIENT_TYPE : DEFAULT_UPDATE_CLIENT_TYPE;
     }
 
     @Override
     protected ExecutorService createWorkerExecutor() {
-        return Executors.newVirtualThreadPerTaskExecutor();
+        return NeoLinkExecutors.createDesktopWorkerExecutor();
+    }
+
+    private static boolean isWindowsRuntime() {
+        String osName = System.getProperty("os.name", "");
+        return osName.toLowerCase(Locale.ROOT).contains("win");
     }
 
     /**

@@ -1,8 +1,8 @@
 package top.ceroxe.api.neolink;
 
 import org.junit.jupiter.api.DisplayName;
+import top.ceroxe.api.neolink.TestThreads;
 import org.junit.jupiter.api.Test;
-import top.ceroxe.api.OshiUtils;
 import top.ceroxe.api.neolink.exception.*;
 import top.ceroxe.api.net.SecureServerSocket;
 import top.ceroxe.api.net.SecureSocket;
@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -19,7 +20,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("NeoLinkAPI lifecycle")
 class NeoLinkAPILifecycleTest {
     private static String expectedUpdateType() {
-        return OshiUtils.isWindows() ? "exe" : "jar";
+        String osName = System.getProperty("os.name", "");
+        return osName.toLowerCase(Locale.ROOT).contains("win") ? "exe" : "jar";
     }
 
     private static <T extends Throwable> void assertStartupResponseThrows(
@@ -29,7 +31,7 @@ class NeoLinkAPILifecycleTest {
         AtomicReference<Throwable> serverError = new AtomicReference<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
-            Thread serverThread = Thread.ofVirtual().start(() -> {
+            Thread serverThread = TestThreads.start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     assertNotNull(socket.receiveStr(2000));
                     socket.sendStr(serverResponse);
@@ -59,7 +61,7 @@ class NeoLinkAPILifecycleTest {
 
     private static CompletableFuture<Void> startAsync(NeoLinkAPI neoLink, Integer connectToNpsTimeoutMillis) {
         CompletableFuture<Void> future = new CompletableFuture<>();
-        Thread.ofVirtual().start(() -> {
+        TestThreads.start(() -> {
             try {
                 if (connectToNpsTimeoutMillis == null) {
                     neoLink.start();
@@ -96,7 +98,7 @@ class NeoLinkAPILifecycleTest {
         AtomicReference<Throwable> serverError = new AtomicReference<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
-            Thread serverThread = Thread.ofVirtual().start(() -> {
+            Thread serverThread = TestThreads.start(() -> {
                 for (int i = 0; i < 2; i++) {
                     try (SecureSocket socket = server.accept()) {
                         String handshake = socket.receiveStr(2000);
@@ -148,7 +150,7 @@ class NeoLinkAPILifecycleTest {
         AtomicReference<Throwable> serverError = new AtomicReference<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
-            Thread serverThread = Thread.ofVirtual().start(() -> {
+            Thread serverThread = TestThreads.start(() -> {
                 try (SecureSocket firstSocket = server.accept()) {
                     assertNotNull(firstSocket.receiveStr(2000));
                     firstSocket.sendStr("Connection build up successfully");
@@ -224,7 +226,7 @@ class NeoLinkAPILifecycleTest {
         List<NeoLinkState> states = new CopyOnWriteArrayList<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
-            Thread serverThread = Thread.ofVirtual().start(() -> {
+            Thread serverThread = TestThreads.start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     assertNotNull(socket.receiveStr(2000));
                     socket.sendStr("Connection build up successfully");
@@ -285,7 +287,7 @@ class NeoLinkAPILifecycleTest {
         AtomicReference<Throwable> serverError = new AtomicReference<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
-            Thread serverThread = Thread.ofVirtual().start(() -> {
+            Thread serverThread = TestThreads.start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     assertNotNull(socket.receiveStr(2000));
                     socket.sendStr("Connection build up successfully");
@@ -327,7 +329,7 @@ class NeoLinkAPILifecycleTest {
         AtomicReference<Throwable> serverError = new AtomicReference<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
-            Thread serverThread = Thread.ofVirtual().start(() -> {
+            Thread serverThread = TestThreads.start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     assertNotNull(socket.receiveStr(2000));
                     socket.sendStr("Connection build up successfully");
@@ -389,7 +391,7 @@ class NeoLinkAPILifecycleTest {
         try (SecureServerSocket hookServer = new SecureServerSocket(0);
              SecureServerSocket transferServer = new SecureServerSocket(0);
              ServerSocket localServer = new ServerSocket(0)) {
-            Thread hookThread = Thread.ofVirtual().start(() -> {
+            Thread hookThread = TestThreads.start(() -> {
                 try (SecureSocket socket = hookServer.accept()) {
                     assertNotNull(socket.receiveStr(2000));
                     socket.sendStr("Connection build up successfully");
@@ -399,7 +401,7 @@ class NeoLinkAPILifecycleTest {
                     serverError.compareAndSet(null, e);
                 }
             });
-            Thread transferThread = Thread.ofVirtual().start(() -> {
+            Thread transferThread = TestThreads.start(() -> {
                 try (SecureSocket socket = transferServer.accept()) {
                     transferHandshake.set(socket.receiveStr(3000));
                     transferHandshakeReceived.countDown();
@@ -407,7 +409,7 @@ class NeoLinkAPILifecycleTest {
                     serverError.compareAndSet(null, e);
                 }
             });
-            Thread localThread = Thread.ofVirtual().start(() -> {
+            Thread localThread = TestThreads.start(() -> {
                 try (Socket socket = localServer.accept()) {
                     localAccepted.countDown();
                 } catch (Throwable e) {
@@ -463,7 +465,7 @@ class NeoLinkAPILifecycleTest {
 
         try (SecureServerSocket hookServer = new SecureServerSocket(0);
              SecureServerSocket transferServer = new SecureServerSocket(0)) {
-            Thread hookThread = Thread.ofVirtual().start(() -> {
+            Thread hookThread = TestThreads.start(() -> {
                 try (SecureSocket socket = hookServer.accept()) {
                     assertNotNull(socket.receiveStr(2000));
                     socket.sendStr("Connection build up successfully");
@@ -473,7 +475,7 @@ class NeoLinkAPILifecycleTest {
                     serverError.compareAndSet(null, e);
                 }
             });
-            Thread transferThread = Thread.ofVirtual().start(() -> {
+            Thread transferThread = TestThreads.start(() -> {
                 try (SecureSocket socket = transferServer.accept()) {
                     transferHandshake.set(socket.receiveStr(3000));
                     transferHandshakeReceived.countDown();
@@ -522,7 +524,7 @@ class NeoLinkAPILifecycleTest {
         List<NeoLinkState> states = new CopyOnWriteArrayList<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
-            Thread serverThread = Thread.ofVirtual().start(() -> {
+            Thread serverThread = TestThreads.start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     assertNotNull(socket.receiveStr(2000));
                     socket.sendStr("Connection build up successfully");
@@ -572,7 +574,7 @@ class NeoLinkAPILifecycleTest {
         AtomicReference<String> command = new AtomicReference<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
-            Thread serverThread = Thread.ofVirtual().start(() -> {
+            Thread serverThread = TestThreads.start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     assertNotNull(socket.receiveStr(2000));
                     socket.sendStr("Connection build up successfully");
@@ -617,7 +619,7 @@ class NeoLinkAPILifecycleTest {
         try (SecureServerSocket hookServer = new SecureServerSocket(0);
              SecureServerSocket transferServer = new SecureServerSocket(0);
              ServerSocket localServer = new ServerSocket(0)) {
-            Thread hookThread = Thread.ofVirtual().start(() -> {
+            Thread hookThread = TestThreads.start(() -> {
                 try (SecureSocket socket = hookServer.accept()) {
                     assertNotNull(socket.receiveStr(2000));
                     socket.sendStr("Connection build up successfully");
@@ -629,7 +631,7 @@ class NeoLinkAPILifecycleTest {
                     serverError.compareAndSet(null, e);
                 }
             });
-            Thread transferThread = Thread.ofVirtual().start(() -> {
+            Thread transferThread = TestThreads.start(() -> {
                 try (SecureSocket socket = transferServer.accept()) {
                     transferHandshake.set(socket.receiveStr(3000));
                     transferHandshakeReceived.countDown();
@@ -637,7 +639,7 @@ class NeoLinkAPILifecycleTest {
                     serverError.compareAndSet(null, e);
                 }
             });
-            Thread localThread = Thread.ofVirtual().start(() -> {
+            Thread localThread = TestThreads.start(() -> {
                 try (Socket socket = localServer.accept()) {
                     localAccepted.countDown();
                 } catch (Throwable e) {
@@ -683,7 +685,7 @@ class NeoLinkAPILifecycleTest {
         AtomicReference<Throwable> runtimeFailure = new AtomicReference<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
-            Thread serverThread = Thread.ofVirtual().start(() -> {
+            Thread serverThread = TestThreads.start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     assertNotNull(socket.receiveStr(2000));
                     socket.sendStr("Connection build up successfully");
@@ -729,7 +731,7 @@ class NeoLinkAPILifecycleTest {
         AtomicReference<String> decisionInput = new AtomicReference<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
-            Thread serverThread = Thread.ofVirtual().start(() -> {
+            Thread serverThread = TestThreads.start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     handshake.set(socket.receiveStr(2000));
                     String response = "Unsupported version ! It should be :6.0.1|6.0.2";
@@ -777,7 +779,7 @@ class NeoLinkAPILifecycleTest {
         AtomicReference<Throwable> callbackFailure = new AtomicReference<>();
 
         try (SecureServerSocket server = new SecureServerSocket(0)) {
-            Thread serverThread = Thread.ofVirtual().start(() -> {
+            Thread serverThread = TestThreads.start(() -> {
                 try (SecureSocket socket = server.accept()) {
                     assertNotNull(socket.receiveStr(2000));
                     socket.sendStr("Connection build up successfully");

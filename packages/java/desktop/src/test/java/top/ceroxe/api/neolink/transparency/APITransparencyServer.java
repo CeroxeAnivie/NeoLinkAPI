@@ -3,6 +3,7 @@ package top.ceroxe.api.neolink.transparency;
 import top.ceroxe.api.neolink.NeoLinkAPI;
 import top.ceroxe.api.neolink.NeoLinkCfg;
 import top.ceroxe.api.neolink.NeoLinkState;
+import top.ceroxe.api.neolink.TestThreads;
 import top.ceroxe.api.neolink.exception.NoMoreNetworkFlowException;
 import top.ceroxe.api.neolink.exception.NoSuchKeyException;
 import top.ceroxe.api.neolink.exception.UnsupportedVersionException;
@@ -71,7 +72,7 @@ public final class APITransparencyServer {
         RUNNING.set(true);
         EchoRuntime echoRuntime = startLocalEchoRuntime(runtimeArgs.localBindHost(), runtimeArgs.localPort());
         NeoLinkAPI tunnel = buildTunnel(runtimeArgs);
-        Thread tunnelThread = Thread.ofVirtual().name("neolink-transparency-tunnel").start(() -> runTunnel(tunnel));
+        Thread tunnelThread = TestThreads.start("neolink-transparency-tunnel", () -> runTunnel(tunnel));
         String tunAddr = waitForTunAddr(tunnel);
         return new RunningServer(tunAddr, tunnel, echoRuntime, tunnelThread);
     }
@@ -80,8 +81,8 @@ public final class APITransparencyServer {
         ServerSocket tcpServer = new ServerSocket(localPort, 128, InetAddress.getByName(localBindHost));
         DatagramSocket udpServer = new DatagramSocket(localPort, InetAddress.getByName(localBindHost));
 
-        Thread.ofVirtual().name("transparency-tcp-accept").start(() -> acceptTcpLoop(tcpServer));
-        Thread.ofVirtual().name("transparency-udp-echo").start(() -> serveUdpLoop(udpServer));
+        TestThreads.start("transparency-tcp-accept", () -> acceptTcpLoop(tcpServer));
+        TestThreads.start("transparency-udp-echo", () -> serveUdpLoop(udpServer));
 
         return new EchoRuntime(tcpServer, udpServer);
     }
@@ -155,7 +156,7 @@ public final class APITransparencyServer {
         while (RUNNING.get() && !tcpServer.isClosed()) {
             try {
                 Socket socket = tcpServer.accept();
-                Thread.ofVirtual().name("transparency-tcp-session").start(() -> handleTcpSession(socket));
+                TestThreads.start("transparency-tcp-session", () -> handleTcpSession(socket));
             } catch (SocketException e) {
                 if (RUNNING.get()) {
                     System.err.println("[server-error] TCP accept 失败: " + e.getMessage());

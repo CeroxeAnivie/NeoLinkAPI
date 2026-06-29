@@ -1,6 +1,7 @@
 package top.ceroxe.api.neolink.network.threads;
 
 import org.junit.jupiter.api.DisplayName;
+import top.ceroxe.api.neolink.TestThreads;
 import org.junit.jupiter.api.Test;
 import top.ceroxe.api.net.SecureServerSocket;
 import top.ceroxe.api.net.SecureSocket;
@@ -124,7 +125,7 @@ class UDPTransformerTest {
         try (SecureServerSocket secureServer = new SecureServerSocket(0);
              DatagramSocket localTarget = new DatagramSocket(0);
              DatagramSocket transformerSocket = new DatagramSocket(0)) {
-            Thread secureServerThread = Thread.ofVirtual().start(() -> {
+            Thread secureServerThread = TestThreads.start(() -> {
                 try (SecureSocket socket = secureServer.accept()) {
                     socket.sendBytes(serializeUdpPacket(payload, InetAddress.getByName("127.0.0.1"), localTarget.getLocalPort()));
                     socket.sendBytes(null);
@@ -133,7 +134,7 @@ class UDPTransformerTest {
                 }
             });
 
-            Thread localTargetThread = Thread.ofVirtual().start(() -> {
+            Thread localTargetThread = TestThreads.start(() -> {
                 try {
                     byte[] buffer = new byte[1024];
                     DatagramPacket packet = new DatagramPacket(buffer, buffer.length);
@@ -146,7 +147,7 @@ class UDPTransformerTest {
             });
 
             try (SecureSocket secureClient = new SecureSocket("localhost", secureServer.getLocalPort())) {
-                Thread transformerThread = Thread.ofVirtual().start(new UDPTransformer(
+                Thread transformerThread = TestThreads.start(new UDPTransformer(
                         secureClient,
                         transformerSocket,
                         "localhost",
@@ -183,7 +184,7 @@ class UDPTransformerTest {
         try (SecureServerSocket secureServer = new SecureServerSocket(0);
              DatagramSocket localReceiver = new DatagramSocket(0);
              DatagramSocket localSender = new DatagramSocket()) {
-            Thread secureServerThread = Thread.ofVirtual().start(() -> {
+            Thread secureServerThread = TestThreads.start(() -> {
                 try (SecureSocket socket = secureServer.accept()) {
                     byte[] serialized = socket.receiveBytes(2000);
                     DatagramPacket packet = UDPTransformer.deserializeToDatagramPacket(serialized);
@@ -195,7 +196,7 @@ class UDPTransformerTest {
             });
 
             try (SecureSocket secureClient = new SecureSocket("localhost", secureServer.getLocalPort())) {
-                Thread transformerThread = Thread.ofVirtual().start(new UDPTransformer(
+                Thread transformerThread = TestThreads.start(new UDPTransformer(
                         localReceiver,
                         secureClient,
                         "localhost",
@@ -238,7 +239,7 @@ class UDPTransformerTest {
         try (SecureServerSocket secureServer = new SecureServerSocket(0);
              DatagramSocket localReceiver = new DatagramSocket(0);
              DatagramSocket localSender = new DatagramSocket()) {
-            Thread secureServerThread = Thread.ofVirtual().start(() -> {
+            Thread secureServerThread = TestThreads.start(() -> {
                 try (SecureSocket socket = secureServer.accept()) {
                     byte[] serialized = socket.receiveBytes(2000);
                     DatagramPacket packet = UDPTransformer.deserializeToDatagramPacket(serialized);
@@ -250,7 +251,7 @@ class UDPTransformerTest {
             });
 
             try (SecureSocket secureClient = new SecureSocket("localhost", secureServer.getLocalPort())) {
-                Thread transformerThread = Thread.ofVirtual().start(new UDPTransformer(
+                Thread transformerThread = TestThreads.start(new UDPTransformer(
                         localReceiver,
                         secureClient,
                         "localhost",

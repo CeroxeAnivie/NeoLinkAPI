@@ -9,14 +9,7 @@ const versionData = JSON.parse(fs.readFileSync(versionFilePath, 'utf8'));
 const apiVersion = String(versionData.apiVersion ?? '').trim();
 
 if (!/^\d+\.\d+\.\d+$/.test(apiVersion)) {
-    throw new Error(`shared/version.json must define a semantic version like 7.1.7. Received: ${apiVersion || '<empty>'}`);
-}
-
-function writeJson(relativePath, updater) {
-    const filePath = path.join(rootDir, relativePath);
-    const json = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    updater(json);
-    fs.writeFileSync(filePath, `${JSON.stringify(json, null, 2)}\n`, 'utf8');
+    throw new Error(`shared/version.json must define a semantic version like 7.2.1. Received: ${apiVersion || '<empty>'}`);
 }
 
 function replaceInFile(relativePath, matcher, replacement) {
@@ -25,33 +18,8 @@ function replaceInFile(relativePath, matcher, replacement) {
     if (!matcher.test(source)) {
         throw new Error(`Pattern was not found while syncing version in ${relativePath}`);
     }
-    const updated = source.replace(matcher, replacement);
-    fs.writeFileSync(filePath, updated, 'utf8');
+    fs.writeFileSync(filePath, source.replace(matcher, replacement), 'utf8');
 }
-
-writeJson('package.json', (json) => {
-    json.version = apiVersion;
-});
-
-writeJson('packages/nodejs/package.json', (json) => {
-    json.version = apiVersion;
-});
-
-writeJson('package-lock.json', (json) => {
-    json.version = apiVersion;
-    if (json.packages?.['']) {
-        json.packages[''].version = apiVersion;
-    }
-    if (json.packages?.['packages/nodejs']) {
-        json.packages['packages/nodejs'].version = apiVersion;
-    }
-});
-
-replaceInFile(
-    'packages/nodejs/src/version-info.ts',
-    /export const VERSION = '[^']+';/,
-    `export const VERSION = '${apiVersion}';`
-);
 
 replaceInFile(
     'packages/java/build.gradle.kts',
@@ -79,15 +47,21 @@ replaceInFile(
 
 replaceInFile(
     'README.md',
-    /7\.1\.\d+/g,
-    apiVersion
+    /(top\.ceroxe\.api:neolinkapi-(?:desktop|shared|android):)\d+\.\d+\.\d+/g,
+    `$1${apiVersion}`
+);
+
+replaceInFile(
+    'README.md',
+    /(<artifactId>neolinkapi-(?:desktop|shared|android)<\/artifactId>\r?\n\s*<version>)\d+\.\d+\.\d+(<\/version>)/g,
+    `$1${apiVersion}$2`
 );
 
 for (const relativePath of ['docs/Java.md', 'docs/Android.md']) {
     replaceInFile(
         relativePath,
-        /7\.1\.\d+/g,
-        apiVersion
+        /(top\.ceroxe\.api:neolinkapi-(?:desktop|shared|android):)\d+\.\d+\.\d+/g,
+        `$1${apiVersion}`
     );
 }
 
@@ -101,28 +75,4 @@ replaceInFile(
     'packages/java/desktop/src/test/java/top/ceroxe/api/neolink/NeoLinkCfgTest.java',
     /assertEquals\("[0-9.]+", NeoLinkAPI\.version\(\)\);/,
     `assertEquals("${apiVersion}", NeoLinkAPI.version());`
-);
-
-replaceInFile(
-    'packages/nodejs/src/test/core.test.ts',
-    /assert\.equal\(NeoLinkAPI\.version\(\), '[0-9.]+'\);/,
-    `assert.equal(NeoLinkAPI.version(), '${apiVersion}');`
-);
-
-replaceInFile(
-    'packages/nodejs/src/test/core.test.ts',
-    /assert\.equal\(esmModule\.VERSION, '[0-9.]+'\);/,
-    `assert.equal(esmModule.VERSION, '${apiVersion}');`
-);
-
-replaceInFile(
-    'packages/nodejs/src/test/core.test.ts',
-    /assert\.equal\(cjsModule\.VERSION, '[0-9.]+'\);/,
-    `assert.equal(cjsModule.VERSION, '${apiVersion}');`
-);
-
-replaceInFile(
-    'packages/nodejs/src/test/lifecycle.test.ts',
-    /assert\.equal\(handshake, 'zh;[0-9.]+;key;'\);/,
-    `assert.equal(handshake, 'zh;${apiVersion};key;');`
 );

@@ -16,7 +16,7 @@ packages/
   java/
     common/                      Java 17 共享隧道生命周期和代理实现
     shared/                      Java 17 共享协议模型、异常与纯工具逻辑
-    desktop/                     Java 21 桌面 JVM 实现与测试
+    desktop/                     Java 17 桌面 JVM 实现与测试，Java 21+ 运行时自动启用虚拟线程执行器
     android/neolinkapi-android/  独立 Android Library 工程，产出 AAR
   nodejs/    Node.js 包，源码使用 TypeScript 编写，使用 npm 构建与发布
 shared/      跨语言共享的协议契约、fixtures、Mock 数据和版本元数据
@@ -31,7 +31,7 @@ Java 侧采用平台拆分结构：
 - `packages/java/common`
   不单独发布的内部源码复用层，包含 Desktop 与 Android 共用的隧道生命周期、控制连接、转发调度和代理实现。
 - `packages/java/desktop`
-  桌面 JVM 打包层，继续保持 Java 21，并依赖 `top.ceroxe.api:ceroxe-core` 与 `top.ceroxe.api:ceroxe-detector`。
+  桌面 JVM 打包层，维持 Java 17 发布基线，并依赖 Java 17 字节码的 `top.ceroxe.api:ceroxe-core-shared:2.0.2`。
 - `packages/java/android/neolinkapi-android`
   独立 Android Gradle Library，复用 `common` 隧道实现和 `shared` 公共 API 源码，依赖 `top.ceroxe.api:ceroxe-core-android`，发布真实 Android AAR。
   该工程的源码来源分为三部分：
@@ -48,8 +48,8 @@ Java 侧采用平台拆分结构：
 
 这个边界是刻意设计的：
 
-- `common`、`shared` 与 Android 维持 Java 17，保证 Android 可复用；Desktop 包装层继续使用 Java 21。
-- `desktop` 保持 Java 21，只承载桌面增强能力，例如虚拟线程和桌面专属实现。
+- `common`、`shared`、Desktop 与 Android 统一以 Java 17 作为发布基线。Desktop 在 Java 21 及更高版本运行时会自动启用虚拟线程执行器；Java 17 运行时使用命名 daemon 平台线程池。
+- `desktop` 以 Java 17 作为发布基线；Java 21 及更高版本运行时自动启用虚拟线程，Java 17 运行时使用平台线程兼容后端。
 - Android 打包禁止回退到旧的桌面依赖坐标，也不依赖本地陈旧 Maven 缓存。
 
 桌面 JVM 产物的 Maven 坐标是：
@@ -58,7 +58,7 @@ Java 侧采用平台拆分结构：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi-desktop</artifactId>
-    <version>7.2.0</version>
+    <version>7.2.2</version>
 </dependency>
 ```
 
@@ -68,7 +68,7 @@ Java 侧采用平台拆分结构：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi-shared</artifactId>
-    <version>7.2.0</version>
+    <version>7.2.2</version>
 </dependency>
 ```
 
@@ -78,7 +78,7 @@ Android 产物的 Maven 坐标是：
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi-android</artifactId>
-    <version>7.2.0</version>
+    <version>7.2.2</version>
 </dependency>
 ```
 
@@ -102,7 +102,7 @@ npm install neolinkapi
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi-desktop</artifactId>
-    <version>7.2.0</version>
+    <version>7.2.2</version>
 </dependency>
 ```
 
@@ -110,7 +110,7 @@ npm install neolinkapi
 
 ```kotlin
 dependencies {
-    implementation("top.ceroxe.api:neolinkapi-desktop:7.2.0")
+    implementation("top.ceroxe.api:neolinkapi-desktop:7.2.2")
 }
 ```
 
@@ -118,7 +118,7 @@ dependencies {
 
 ```groovy
 dependencies {
-    implementation 'top.ceroxe.api:neolinkapi-desktop:7.2.0'
+    implementation 'top.ceroxe.api:neolinkapi-desktop:7.2.2'
 }
 ```
 
@@ -153,13 +153,15 @@ NeoLinkAPI api = new NeoLinkAPI(
         new NeoLinkCfg("nps.example.com", 44801, 44802, "your-access-key", 25565)
 );
 
-Thread tunnelThread = Thread.ofVirtual().start(() -> {
+Thread tunnelThread = new Thread(() -> {
     try {
         api.start();
     } catch (Exception e) {
         e.printStackTrace();
     }
-});
+}, "neolink-tunnel");
+tunnelThread.setDaemon(true);
+tunnelThread.start();
 
 System.out.println("tunAddr = " + api.getTunAddr());
 

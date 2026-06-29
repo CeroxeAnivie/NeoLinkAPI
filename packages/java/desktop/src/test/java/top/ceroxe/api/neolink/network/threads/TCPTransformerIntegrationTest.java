@@ -1,6 +1,7 @@
 package top.ceroxe.api.neolink.network.threads;
 
 import org.junit.jupiter.api.AfterAll;
+import top.ceroxe.api.neolink.TestThreads;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -37,11 +38,11 @@ class TCPTransformerIntegrationTest {
         secureServerSocket = new SecureServerSocket(TEST_PORT);
         serverRunning = true;
 
-        serverThread = Thread.ofVirtual().start(() -> {
+        serverThread = TestThreads.start(() -> {
             while (serverRunning && !secureServerSocket.isClosed()) {
                 try {
                     SecureSocket clientSocket = secureServerSocket.accept();
-                    Thread.ofVirtual().start(() -> handleClient(clientSocket));
+                    TestThreads.start(() -> handleClient(clientSocket));
                 } catch (IOException e) {
                     if (serverRunning) {
                         e.printStackTrace();
@@ -83,7 +84,7 @@ class TCPTransformerIntegrationTest {
             AtomicReference<Throwable> serverError,
             SecureSocketHandler handler
     ) {
-        return Thread.ofVirtual().start(() -> {
+        return TestThreads.start(() -> {
             try (SecureSocket socket = serverSocket.accept()) {
                 handler.handle(socket);
             } catch (Throwable e) {
@@ -246,7 +247,7 @@ class TCPTransformerIntegrationTest {
                 socket.sendBytes("TEST_DATA".getBytes());
                 socket.sendBytes(null);
             });
-            Thread localServerThread = Thread.ofVirtual().start(() -> {
+            Thread localServerThread = TestThreads.start(() -> {
                 try {
                     Socket localClient = localServer.accept();
                     byte[] buffer = new byte[1024];
@@ -265,7 +266,7 @@ class TCPTransformerIntegrationTest {
             Socket localSocket = new Socket("localhost", LOCAL_SERVER_PORT);
 
             TCPTransformer transformer = new TCPTransformer(secureClient, localSocket, false);
-            Thread transformerThread = Thread.ofVirtual().start(transformer);
+            Thread transformerThread = TestThreads.start(transformer);
 
             latch.await(5, TimeUnit.SECONDS);
 
@@ -296,7 +297,7 @@ class TCPTransformerIntegrationTest {
                 socket.sendBytes(ppv2Header);
                 socket.sendBytes(null);
             });
-            Thread localServerThread = Thread.ofVirtual().start(() -> {
+            Thread localServerThread = TestThreads.start(() -> {
                 try {
                     Socket localClient = localServer.accept();
                     byte[] buffer = new byte[1024];
@@ -316,7 +317,7 @@ class TCPTransformerIntegrationTest {
             Socket localSocket = new Socket("localhost", LOCAL_SERVER_PORT + 1);
 
             TCPTransformer transformer = new TCPTransformer(secureClient, localSocket, true);
-            Thread transformerThread = Thread.ofVirtual().start(transformer);
+            Thread transformerThread = TestThreads.start(transformer);
 
             latch.await(5, TimeUnit.SECONDS);
 
@@ -351,7 +352,7 @@ class TCPTransformerIntegrationTest {
                 socket.sendBytes(payload);
                 socket.sendBytes(null);
             });
-            Thread localServerThread = Thread.ofVirtual().start(() -> {
+            Thread localServerThread = TestThreads.start(() -> {
                 try {
                     Socket localClient = localServer.accept();
                     byte[] buffer = new byte[1024];
@@ -369,7 +370,7 @@ class TCPTransformerIntegrationTest {
             SecureSocket secureClient = new SecureSocket("localhost", server.getLocalPort());
             Socket localSocket = new Socket("localhost", localServer.getLocalPort());
             TCPTransformer transformer = new TCPTransformer(secureClient, localSocket, false);
-            Thread transformerThread = Thread.ofVirtual().start(transformer);
+            Thread transformerThread = TestThreads.start(transformer);
 
             assertTrue(latch.await(5, TimeUnit.SECONDS));
             assertArrayEquals(payload, receivedData.get());
@@ -397,7 +398,7 @@ class TCPTransformerIntegrationTest {
                 socket.sendBytes(partialHeader);
                 socket.sendBytes(null);
             });
-            Thread localServerThread = Thread.ofVirtual().start(() -> {
+            Thread localServerThread = TestThreads.start(() -> {
                 try (Socket localClient = localServer.accept()) {
                     receivedBytes.set(localClient.getInputStream().read());
                     eofReached.countDown();
@@ -409,7 +410,7 @@ class TCPTransformerIntegrationTest {
             SecureSocket secureClient = new SecureSocket("localhost", server.getLocalPort());
             Socket localSocket = new Socket("localhost", localServer.getLocalPort());
             TCPTransformer transformer = new TCPTransformer(secureClient, localSocket, false);
-            Thread transformerThread = Thread.ofVirtual().start(transformer);
+            Thread transformerThread = TestThreads.start(transformer);
 
             assertTrue(eofReached.await(5, TimeUnit.SECONDS));
             assertEquals(-1, receivedBytes.get());

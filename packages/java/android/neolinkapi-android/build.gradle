@@ -23,7 +23,7 @@ plugins {
 apply plugin: 'com.android.library'
 
 group = 'top.ceroxe.api'
-version = '7.2.0'
+version = '7.2.2'
 
 nmcp {
     publishAllPublicationsToCentralPortal {
@@ -91,7 +91,7 @@ android {
 }
 
 dependencies {
-    api 'top.ceroxe.api:ceroxe-core-android:2.0.0'
+    api 'top.ceroxe.api:ceroxe-core-android:2.0.2'
     api 'com.google.code.gson:gson:2.11.0'
 
     testImplementation 'junit:junit:4.13.2'

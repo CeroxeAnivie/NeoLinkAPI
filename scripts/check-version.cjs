@@ -11,21 +11,16 @@ if (!/^\d+\.\d+\.\d+$/.test(String(version))) {
 }
 
 const checks = [
-    ['package.json', new RegExp(`"version": "${version}"`)],
-    ['packages/nodejs/package.json', new RegExp(`"version": "${version}"`)],
-    ['package-lock.json', new RegExp(`"version": "${version}"`)],
-    ['packages/nodejs/src/version-info.ts', new RegExp(`VERSION = '${version}'`)],
     ['packages/java/build.gradle.kts', new RegExp(`version = "${version}"`)],
     ['packages/java/android/neolinkapi-android/build.gradle', new RegExp(`version = '${version}'`)],
     ['shared/protocol/neolink-protocol.contract.json', new RegExp(`"protocolVersion": "${version}"`)],
     ['shared/fixtures/handshake/startup-responses.json', new RegExp(`It should be :${version}`)],
-    ['README.md', new RegExp(version.replace(/\./g, '\\.'))],
-    ['docs/Java.md', new RegExp(version.replace(/\./g, '\\.'))],
-    ['docs/Android.md', new RegExp(version.replace(/\./g, '\\.'))],
+    ['README.md', new RegExp(`neolinkapi-desktop:${version.replace(/\./g, '\\.')}`)],
+    ['README.md', new RegExp(`neolinkapi-shared[\\s\\S]*?<version>${version.replace(/\./g, '\\.')}</version>`)],
+    ['docs/Java.md', new RegExp(`neolinkapi-desktop:${version.replace(/\./g, '\\.')}`)],
+    ['docs/Android.md', new RegExp(`neolinkapi-android:${version.replace(/\./g, '\\.')}`)],
     ['packages/java/desktop/src/test/java/top/ceroxe/api/neolink/NeoLinkCfgTest.java', new RegExp(`"${version}"`)],
-    ['packages/java/desktop/src/test/java/top/ceroxe/api/neolink/HandshakeProtocolMirrorTest.java', new RegExp(`:${version}`)],
-    ['packages/nodejs/src/test/core.test.ts', new RegExp(`'${version}'`)],
-    ['packages/nodejs/src/test/lifecycle.test.ts', new RegExp(`zh;${version};key;`)]
+    ['packages/java/desktop/src/test/java/top/ceroxe/api/neolink/HandshakeProtocolMirrorTest.java', new RegExp(`:${version}`)]
 ];
 
 const failures = [];
@@ -37,7 +32,7 @@ for (const [relativePath, matcher] of checks) {
     }
     const source = fs.readFileSync(filePath, 'utf8');
     if (!matcher.test(source)) {
-        failures.push(`${relativePath}: expected version ${version}`);
+        failures.push(`${relativePath}: expected Java/API version ${version}`);
     }
 }
 
@@ -45,4 +40,4 @@ if (failures.length > 0) {
     throw new Error(`Version check failed:\n${failures.join('\n')}`);
 }
 
-console.log(`Version check passed: ${version}`);
+console.log(`Java/API version check passed: ${version}`);

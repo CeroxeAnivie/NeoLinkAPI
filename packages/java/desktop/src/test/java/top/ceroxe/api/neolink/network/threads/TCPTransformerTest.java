@@ -1,6 +1,7 @@
 package top.ceroxe.api.neolink.network.threads;
 
 import org.junit.jupiter.api.DisplayName;
+import top.ceroxe.api.neolink.TestThreads;
 import org.junit.jupiter.api.Test;
 import top.ceroxe.api.net.SecureServerSocket;
 import top.ceroxe.api.net.SecureSocket;
@@ -36,7 +37,7 @@ class TCPTransformerTest {
 
         try (SecureServerSocket secureServer = new SecureServerSocket(0);
              ServerSocket localServer = new ServerSocket(0)) {
-            Thread secureServerThread = Thread.ofVirtual().start(() -> {
+            Thread secureServerThread = TestThreads.start(() -> {
                 try (SecureSocket socket = secureServer.accept()) {
                     socket.sendBytes(frame);
                     socket.sendBytes(null);
@@ -45,7 +46,7 @@ class TCPTransformerTest {
                 }
             });
 
-            Thread localServerThread = Thread.ofVirtual().start(() -> {
+            Thread localServerThread = TestThreads.start(() -> {
                 try (Socket localClient = localServer.accept()) {
                     received.set(localClient.getInputStream().readAllBytes());
                     latch.countDown();
@@ -56,7 +57,7 @@ class TCPTransformerTest {
 
             try (SecureSocket secureClient = new SecureSocket("localhost", secureServer.getLocalPort());
                  Socket localSocket = new Socket("localhost", localServer.getLocalPort())) {
-                Thread transformerThread = Thread.ofVirtual().start(
+                Thread transformerThread = TestThreads.start(
                         new TCPTransformer(
                                 secureClient,
                                 localSocket,
@@ -86,7 +87,7 @@ class TCPTransformerTest {
 
         try (SecureServerSocket secureServer = new SecureServerSocket(0);
              ServerSocket localServer = new ServerSocket(0)) {
-            Thread secureServerThread = Thread.ofVirtual().start(() -> {
+            Thread secureServerThread = TestThreads.start(() -> {
                 try (SecureSocket socket = secureServer.accept()) {
                     byte[] frame = socket.receiveBytes(2000);
                     received.set(frame == null ? new byte[0] : frame);
@@ -96,7 +97,7 @@ class TCPTransformerTest {
                 }
             });
 
-            Thread localServerThread = Thread.ofVirtual().start(() -> {
+            Thread localServerThread = TestThreads.start(() -> {
                 try (Socket localClient = localServer.accept()) {
                     localClient.getOutputStream().write(payload);
                     localClient.shutdownOutput();
@@ -107,7 +108,7 @@ class TCPTransformerTest {
 
             try (SecureSocket secureClient = new SecureSocket("localhost", secureServer.getLocalPort());
                  Socket localSocket = new Socket("localhost", localServer.getLocalPort())) {
-                Thread transformerThread = Thread.ofVirtual().start(
+                Thread transformerThread = TestThreads.start(
                         new TCPTransformer(
                                 localSocket,
                                 secureClient,

@@ -6,6 +6,9 @@ import org.junit.jupiter.api.Test;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -68,7 +71,30 @@ class NeoLinkCfgTest {
         assertFalse(cfg.isDebugMsg());
         assertEquals(NeoLinkCfg.ZH_CH, cfg.getLanguage());
         assertEquals(NeoLinkAPI.version(), cfg.getClientVersion());
-        assertEquals("7.2.0", NeoLinkAPI.version());
+        assertEquals("7.2.2", NeoLinkAPI.version());
+    }
+
+    @Test
+    @DisplayName("desktop executor 在 Java 21+ 使用虚拟线程，Java 17 使用兼容后端")
+    void desktopExecutorUsesBestAvailableRuntimeThreadModel() throws Exception {
+            ExecutorService executor = NeoLinkExecutors.createDesktopWorkerExecutor();
+        try {
+            CompletableFuture<Boolean> virtualThread = new CompletableFuture<>();
+            executor.submit(() -> virtualThread.complete(currentThreadIsVirtual()));
+
+            assertEquals(Runtime.version().feature() >= 21, virtualThread.get(3, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private static boolean currentThreadIsVirtual() {
+        try {
+            Method isVirtual = Thread.class.getMethod("isVirtual");
+            return (Boolean) isVirtual.invoke(Thread.currentThread());
+        } catch (ReflectiveOperationException ignored) {
+            return false;
+        }
     }
 
     @Test

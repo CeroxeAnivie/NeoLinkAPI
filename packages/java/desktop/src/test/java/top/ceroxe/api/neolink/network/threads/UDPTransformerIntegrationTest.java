@@ -1,6 +1,7 @@
 package top.ceroxe.api.neolink.network.threads;
 
 import org.junit.jupiter.api.AfterAll;
+import top.ceroxe.api.neolink.TestThreads;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,11 +36,11 @@ class UDPTransformerIntegrationTest {
         secureServerSocket = new SecureServerSocket(TEST_PORT);
         serverRunning = true;
 
-        serverThread = Thread.ofVirtual().start(() -> {
+        serverThread = TestThreads.start(() -> {
             while (serverRunning && !secureServerSocket.isClosed()) {
                 try {
                     SecureSocket clientSocket = secureServerSocket.accept();
-                    Thread.ofVirtual().start(() -> handleUdpClient(clientSocket));
+                    TestThreads.start(() -> handleUdpClient(clientSocket));
                 } catch (IOException e) {
                     if (serverRunning) {
                         e.printStackTrace();
@@ -230,7 +231,7 @@ class UDPTransformerIntegrationTest {
         SecureSocket secureClient = new SecureSocket("localhost", TEST_PORT);
 
         UDPTransformer transformer = new UDPTransformer(secureClient, localUdpSocket);
-        Thread transformerThread = Thread.ofVirtual().start(transformer);
+        Thread transformerThread = TestThreads.start(transformer);
 
         byte[] testData = "UDP_TEST_DATA".getBytes();
         byte[] serializedData = serializeDatagramPacket(

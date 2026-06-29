@@ -130,7 +130,8 @@ public final class APITransparencyClient {
     private static String testTcpConcurrency(TargetAddress target) throws InterruptedException, ExecutionException {
         int sessions = 12;
         int bytesPerSession = 32_768;
-        try (var executor = Executors.newFixedThreadPool(sessions)) {
+        var executor = Executors.newFixedThreadPool(sessions);
+        try {
             List<Future<Void>> futures = new ArrayList<>();
             for (int index = 0; index < sessions; index++) {
                 final int sessionId = index;
@@ -148,6 +149,8 @@ public final class APITransparencyClient {
             for (Future<Void> future : futures) {
                 future.get();
             }
+        } finally {
+            executor.shutdownNow();
         }
         return "sessions=" + sessions + ", bytesPerSession=" + bytesPerSession;
     }
@@ -207,7 +210,8 @@ public final class APITransparencyClient {
              OutputStream output = socket.getOutputStream();
              InputStream input = socket.getInputStream()) {
             Future<byte[]> readerFuture;
-            try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var executor = Executors.newSingleThreadExecutor();
+            try {
                 readerFuture = executor.submit(() -> readExactly(input, payload.length));
                 writeChunked(output, payload);
                 if (shutdownOutput) {
@@ -232,6 +236,8 @@ public final class APITransparencyClient {
                     drainUntilEof(input);
                 }
                 return echoed;
+            } finally {
+                executor.shutdownNow();
             }
         }
     }

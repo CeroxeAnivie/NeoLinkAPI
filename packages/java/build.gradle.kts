@@ -11,7 +11,7 @@ repositories {
 }
 
 group = "top.ceroxe.api"
-version = "7.2.0"
+version = "7.2.2"
 
 val apiVersion = version.toString()
 
@@ -45,7 +45,7 @@ subprojects {
 
     extensions.configure<JavaPluginExtension>("java") {
         toolchain {
-            languageVersion.set(JavaLanguageVersion.of(if (project.name == "desktop") 21 else 17))
+            languageVersion.set(JavaLanguageVersion.of(17))
         }
         withSourcesJar()
         withJavadocJar()
@@ -61,7 +61,7 @@ subprojects {
 
     tasks.withType<JavaCompile>().configureEach {
         options.encoding = "UTF-8"
-        options.release.set(if (project.name == "desktop") 21 else 17)
+        options.release.set(17)
     }
 
     tasks.withType<Javadoc>().configureEach {
@@ -185,8 +185,7 @@ project(":shared") {
 project(":desktop") {
     dependencies {
         "api"(project(":shared"))
-        "api"("top.ceroxe.api:ceroxe-core:2.0.0")
-        "implementation"("top.ceroxe.api:ceroxe-detector:2.0.0")
+        "api"("top.ceroxe.api:ceroxe-core-shared:2.0.2")
         "testImplementation"("org.junit.jupiter:junit-jupiter:5.10.2")
     }
 
