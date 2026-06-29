@@ -1,18 +1,3 @@
-# Node.js
-node_modules/
-**/node_modules/
-dist/
-**/dist/
-dist-cjs/
-**/dist-cjs/
-coverage/
-**/coverage/
-*.tsbuildinfo
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
 # Gradle / Java
 .gradle/
 **/.gradle/
@@ -80,7 +65,3 @@ desktop.ini
 *.swo
 *~
 all_code.txt
-
-# Node.js caches
-.eslintcache
-.node_repl_history

@@ -207,20 +207,7 @@ api.setOnTraffic((protocol, direction, bytes) ->
 
 ## 构建与测试命令
 
-Java 模块有两种常用入口：在仓库根目录通过 npm 脚本调用，或者直接进入 `packages/java` 用 Gradle Wrapper 调用。两种写法作用相同，区别只是你当前站在哪个目录。
-
-### 在仓库根目录执行
-
-| 目标 | 命令 | 作用 |
-| --- | --- | --- |
-| 构建 Java 库 | `npm run build:java` | 从根目录调用 Java 模块的 `gradlew.bat build` |
-| 测试 Java 库 | `npm run test:java` | 从根目录调用 Java 模块的 `gradlew.bat test` |
-| 离线构建 Java 库 | `npm run build:java:offline` | 使用本地 Gradle 缓存构建，不访问网络 |
-| 离线测试 Java 库 | `npm run test:java:offline` | 使用本地 Gradle 缓存测试，不访问网络 |
-| 构建整个 Monorepo | `npm run build:all` | 依次构建 Java、Android 和 Node.js |
-| 测试整个 Monorepo | `npm run test:all` | 依次运行 Java、Android Debug 单测和 Node.js 测试 |
-| 离线构建整个 Monorepo | `npm run build:all:offline` | Java 与 Android 离线构建后，再构建 Node.js |
-| 离线测试整个 Monorepo | `npm run test:all:offline` | Java 与 Android 离线测试后，再测试 Node.js |
+Java 模块直接使用 `packages/java` 下的 Gradle Wrapper。
 
 ### 进入 `packages/java` 后执行
 
@@ -242,4 +229,4 @@ cd packages\java
 | 生成透明性检查 classpath | `.\gradlew.bat :desktop:printTransparencyRuntimeClasspath` | 输出桌面透明性检查脚本所需的完整运行时 classpath |
 | 运行透明性检查 | `.\desktop\run-transparency-check.cmd` | 运行桌面透明性 server/client 联调检查 |
 
-如果你的目的只是开发或发布 Java 模块，推荐直接用上面这组 Java 命令，不需要先构建 Node.js。
+这些命令只构建和测试 Java/Android 代码。

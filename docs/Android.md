@@ -138,15 +138,9 @@ Android 版常用对象和 Java 版保持一致：
 
 ## 构建与测试命令
 
-### 在仓库根目录执行
-
 PPv2 默认跟随 `NeoLinkCfg`，而 `NeoLinkCfg` 的默认值是 `false`。运行中可以通过 `api.setPPV2Enabled(...)` 热切换；它只影响之后新建的 TCP 连接，已经建立的连接保持创建时的 PPv2 行为。
 
-| 目标 | 命令 | 作用 |
-| --- | --- | --- |
-| 构建 Android Java 库 | `npm run build:java:android` | 从根目录调用独立 Android 工程执行 `build` |
-| 测试 Android Java 库 | `npm run test:java:android` | 运行 Android Library 的全部单元测试 |
-| 快速测试 Android Debug 单测 | `npm run test:java:android:fast` | 只跑 `testDebugUnitTest`，适合日常快速回归 |
+Android 模块直接使用自身 Gradle Wrapper。
 
 ### 进入 `packages/java/android/neolinkapi-android` 后执行
 
