@@ -6,7 +6,7 @@ Java 版适合直接嵌入业务服务。接入时先明确一个事实：`NeoLi
 
 桌面 JVM 产物以 Java 17 作为发布基线，可被 Java 17、Java 21 和后续 JVM 引用。运行在 Java 21 及更高版本时，内部工作执行器会自动启用虚拟线程；运行在 Java 17 时会回退到命名 daemon 平台线程池，公开 API 语义保持一致。
 
-源码层面，`packages/java/shared` 是会发布的 Java 公共 API 模块；`packages/java/common` 是 Desktop 与 Android 共用的内部运行时实现，不单独发布。根目录 `shared/` 只保存跨语言协议契约、fixtures 和版本元数据。
+源码层面，`shared/` 是会发布的 Java 公共 API 模块；`common/` 是 Desktop 与 Android 共用的内部运行时实现，不单独发布。`protocol/` 保存协议契约、fixtures 和版本元数据。
 
 ## 最小调用
 
@@ -207,17 +207,11 @@ api.setOnTraffic((protocol, direction, bytes) ->
 
 ## 构建与测试命令
 
-Java 模块直接使用 `packages/java` 下的 Gradle Wrapper。
+Java 模块直接使用仓库根目录下的 Gradle Wrapper。
 
-### 进入 `packages/java` 后执行
+### 在仓库根目录执行
 
-先进入目录：
-
-```cmd
-cd packages\java
-```
-
-然后根据目标执行：
+根据目标执行：
 
 | 目标 | 命令 | 作用 |
 | --- | --- | --- |

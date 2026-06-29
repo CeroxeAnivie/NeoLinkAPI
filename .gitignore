@@ -24,7 +24,7 @@ eula.txt
 .env
 .env.*
 !.env.example
-packages/java/android/neolinkapi-android/local.properties
+android/neolinkapi-android/local.properties
 
 # IDEs
 .vscode/

@@ -24,7 +24,6 @@ jobs:
           java-version: 21
 
       - name: Run Java desktop/shared tests
-        working-directory: packages/java
         run: ./gradlew test
 
   android:
@@ -44,5 +43,5 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Run Android unit tests
-        working-directory: packages/java/android/neolinkapi-android
+        working-directory: android/neolinkapi-android
         run: ./gradlew testDebugUnitTest

@@ -4,22 +4,22 @@
   <component name="GradleSettings">
     <option name="linkedExternalProjectsSettings">
       <GradleProjectSettings>
-        <option name="externalProjectPath" value="$PROJECT_DIR$/packages/java" />
+        <option name="externalProjectPath" value="$PROJECT_DIR$" />
         <option name="gradleJvm" value="#JAVA_HOME" />
         <option name="modules">
           <set>
-            <option value="$PROJECT_DIR$/packages/java" />
-            <option value="$PROJECT_DIR$/packages/java/desktop" />
-            <option value="$PROJECT_DIR$/packages/java/shared" />
+            <option value="$PROJECT_DIR$" />
+            <option value="$PROJECT_DIR$/desktop" />
+            <option value="$PROJECT_DIR$/shared" />
           </set>
         </option>
       </GradleProjectSettings>
       <GradleProjectSettings>
-        <option name="externalProjectPath" value="$PROJECT_DIR$/packages/java/android/neolinkapi-android" />
+        <option name="externalProjectPath" value="$PROJECT_DIR$/android/neolinkapi-android" />
         <option name="gradleJvm" value="zulu-17" />
         <option name="modules">
           <set>
-            <option value="$PROJECT_DIR$/packages/java/android/neolinkapi-android" />
+            <option value="$PROJECT_DIR$/android/neolinkapi-android" />
           </set>
         </option>
       </GradleProjectSettings>

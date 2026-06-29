@@ -25,8 +25,8 @@ if errorlevel 1 (
   goto finish
 )
 
-rem Resolve API version from shared/version.json for local builds.
-for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "(Get-Content '%PROJECT_DIR%\..\..\shared\version.json' | ConvertFrom-Json).apiVersion"`) do set "API_VERSION=%%A"
+rem Resolve API version from protocol/version.json for local builds.
+for /f "usebackq delims=" %%A in (`powershell -NoProfile -Command "(Get-Content '%PROJECT_DIR%\protocol\version.json' | ConvertFrom-Json).apiVersion"`) do set "API_VERSION=%%A"
 
 if not "%~7"=="" goto usage
 
