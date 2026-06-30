@@ -11,7 +11,7 @@ repositories {
 }
 
 group = "top.ceroxe.api"
-version = "7.2.2"
+version = "7.2.3"
 
 val apiVersion = version.toString()
 
@@ -195,6 +195,19 @@ project(":desktop") {
         sourceSets["test"].output,
         sourceSets["test"].runtimeClasspath
     )
+
+    tasks.named<Jar>("jar") {
+        dependsOn(":shared:jar")
+        // Desktop 产物面向最终使用方分发，不能把 `top.ceroxe.api.net.*` 这类基础运行时类留在外部依赖里。
+        // 这里把运行时 classpath 一并打进 jar，避免消费者拿到桌面包后仍然因为缺少 `ceroxe-core-shared`
+        // 而在链接 `SecureSocket` / `SecureServerSocket` 时直接炸掉。
+        from({
+            sourceSets["main"].runtimeClasspath.filter { it.exists() }.map { entry ->
+                if (entry.isDirectory) entry else zipTree(entry)
+            }
+        })
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
 
     tasks.register("printTransparencyRuntimeClasspath") {
         group = "verification"

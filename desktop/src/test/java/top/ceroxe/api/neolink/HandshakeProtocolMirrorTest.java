@@ -59,7 +59,7 @@ class HandshakeProtocolMirrorTest {
         );
         assertInstanceOf(
                 UnSupportHostVersionException.class,
-                classify("不受支持的版本，应该为:7.2.2")
+                classify("不受支持的版本，应该为:7.2.3")
         );
         assertNull(classify("Connection build up successfully"));
     }

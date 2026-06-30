@@ -2,7 +2,7 @@
 
 Java 版适合直接嵌入业务服务。接入时先明确一个事实：`NeoLinkAPI.start()` 是长运行阻塞方法，它会阻塞到隧道停止、服务端断开、运行期错误，或者其他线程调用 `close()`。
 
-桌面 JVM 产物坐标是 `top.ceroxe.api:neolinkapi-desktop:7.2.2`。共享模型与 NKM 节点工具坐标是 `top.ceroxe.api:neolinkapi-shared:7.2.2`，其中包含 `NodeFetcher`、`NeoNode` 和 `NeoLinkCfg`。Android 产物使用独立坐标 `top.ceroxe.api:neolinkapi-android:7.2.2`，不要在 Android 项目中依赖桌面 JVM 产物。
+桌面 JVM 产物坐标是 `top.ceroxe.api:neolinkapi-desktop:7.2.3`。共享模型与 NKM 节点工具坐标是 `top.ceroxe.api:neolinkapi-shared:7.2.3`，其中包含 `NodeFetcher`、`NeoNode` 和 `NeoLinkCfg`。Android 产物使用独立坐标 `top.ceroxe.api:neolinkapi-android:7.2.3`，不要在 Android 项目中依赖桌面 JVM 产物。
 
 桌面 JVM 产物以 Java 17 作为发布基线，可被 Java 17、Java 21 和后续 JVM 引用。运行在 Java 21 及更高版本时，内部工作执行器会自动启用虚拟线程；运行在 Java 17 时会回退到命名 daemon 平台线程池，公开 API 语义保持一致。
 

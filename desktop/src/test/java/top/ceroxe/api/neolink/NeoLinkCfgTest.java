@@ -71,7 +71,7 @@ class NeoLinkCfgTest {
         assertFalse(cfg.isDebugMsg());
         assertEquals(NeoLinkCfg.ZH_CH, cfg.getLanguage());
         assertEquals(NeoLinkAPI.version(), cfg.getClientVersion());
-        assertEquals("7.2.2", NeoLinkAPI.version());
+        assertEquals("7.2.3", NeoLinkAPI.version());
     }
 
     @Test

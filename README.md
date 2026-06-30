@@ -18,7 +18,7 @@ protocol/                   协议契约、fixtures 和版本元数据
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi-desktop</artifactId>
-    <version>7.2.2</version>
+    <version>7.2.3</version>
 </dependency>
 ```
 
@@ -26,7 +26,7 @@ protocol/                   协议契约、fixtures 和版本元数据
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi-shared</artifactId>
-    <version>7.2.2</version>
+    <version>7.2.3</version>
 </dependency>
 ```
 
@@ -34,7 +34,7 @@ protocol/                   协议契约、fixtures 和版本元数据
 <dependency>
     <groupId>top.ceroxe.api</groupId>
     <artifactId>neolinkapi-android</artifactId>
-    <version>7.2.2</version>
+    <version>7.2.3</version>
 </dependency>
 ```
 
