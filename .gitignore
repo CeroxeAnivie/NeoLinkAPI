@@ -41,8 +41,6 @@ android/neolinkapi-android/local.properties
 .idea/dataSources/
 .idea/dataSources.local.xml
 .idea/material_theme_project_new.xml
-.idea/gradle.xml
-.idea/compiler.xml
 .classpath
 .factorypath
 .project

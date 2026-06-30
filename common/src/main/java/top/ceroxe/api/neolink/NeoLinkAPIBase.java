@@ -786,6 +786,8 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
     private void createNewTCPConnection(String socketId, String remoteAddress) {
         Socket localServerSocket = null;
         SecureSocket neoTransferSocket = null;
+        boolean connectionEventEmitted = false;
+        boolean disconnectHandledByWatcher = false;
         try {
             debug("Creating TCP tunnel. socketId=" + socketId + ", remoteAddress=" + remoteAddress);
             localServerSocket = openLocalSocket();
@@ -795,6 +797,7 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
             neoTransferSocket.sendStr("TCP" + ";" + socketId);
 
             emitConnectionEvent(onConnect, NeoLinkAPI.TransportProtocol.TCP, remoteAddress);
+            connectionEventEmitted = true;
 
             TCPTransformer serverToLocalTask = new TCPTransformer(
                     neoTransferSocket,
@@ -813,11 +816,11 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
                     trafficEmitter(NeoLinkAPI.TransportProtocol.TCP, NeoLinkAPI.TrafficDirection.LOCAL_TO_NEO)
             );
             ExecutorService executor = requireWorkerExecutor();
-            Future<?> first = executor.submit(serverToLocalTask);
-            Future<?> second = executor.submit(localToServerTask);
+            Future<?> first = submitRequiredWorker(executor, serverToLocalTask);
+            Future<?> second = submitRequiredWorker(executor, localToServerTask);
             Socket trackedLocalSocket = localServerSocket;
             SecureSocket trackedTransferSocket = neoTransferSocket;
-            executor.submit(() -> awaitTransformers(
+            submitRequiredWorker(executor, () -> awaitTransformers(
                     NeoLinkAPI.TransportProtocol.TCP,
                     first,
                     second,
@@ -825,6 +828,7 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
                     trackedLocalSocket,
                     trackedTransferSocket
             ));
+            disconnectHandledByWatcher = true;
         } catch (Exception e) {
             IOException exception;
             if (localServerSocket == null) {
@@ -840,12 +844,17 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
             emitError(exception.getMessage(), exception);
             InternetOperator.close(localServerSocket, neoTransferSocket);
             unregisterConnection(localServerSocket, neoTransferSocket);
+            if (connectionEventEmitted && !disconnectHandledByWatcher) {
+                emitConnectionEvent(onDisconnect, NeoLinkAPI.TransportProtocol.TCP, remoteAddress);
+            }
         }
     }
 
     private void createNewUDPConnection(String socketId, String remoteAddress) {
         SecureSocket neoTransferSocket = null;
         DatagramSocket datagramSocket = null;
+        boolean connectionEventEmitted = false;
+        boolean disconnectHandledByWatcher = false;
         try {
             debug("Creating UDP tunnel. socketId=" + socketId + ", remoteAddress=" + remoteAddress);
             neoTransferSocket = openTransferSocket();
@@ -855,6 +864,7 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
             neoTransferSocket.sendStr("UDP" + ";" + socketId);
 
             emitConnectionEvent(onConnect, NeoLinkAPI.TransportProtocol.UDP, remoteAddress);
+            connectionEventEmitted = true;
 
             UDPTransformer localToNeoTask = new UDPTransformer(
                     datagramSocket,
@@ -875,17 +885,18 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
                     trafficEmitter(NeoLinkAPI.TransportProtocol.UDP, NeoLinkAPI.TrafficDirection.NEO_TO_LOCAL)
             );
             ExecutorService executor = requireWorkerExecutor();
-            Future<?> first = executor.submit(localToNeoTask);
-            Future<?> second = executor.submit(neoToLocalTask);
+            Future<?> first = submitRequiredWorker(executor, localToNeoTask);
+            Future<?> second = submitRequiredWorker(executor, neoToLocalTask);
             SecureSocket trackedTransferSocket = neoTransferSocket;
             DatagramSocket trackedDatagramSocket = datagramSocket;
-            executor.submit(() -> awaitUdpTransformers(
+            submitRequiredWorker(executor, () -> awaitUdpTransformers(
                     first,
                     second,
                     remoteAddress,
                     trackedTransferSocket,
                     trackedDatagramSocket
             ));
+            disconnectHandledByWatcher = true;
         } catch (Exception e) {
             IOException exception;
             if (neoTransferSocket == null) {
@@ -898,6 +909,9 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
             emitError(exception.getMessage(), exception);
             InternetOperator.close(datagramSocket, neoTransferSocket);
             unregisterConnection(datagramSocket, neoTransferSocket);
+            if (connectionEventEmitted && !disconnectHandledByWatcher) {
+                emitConnectionEvent(onDisconnect, NeoLinkAPI.TransportProtocol.UDP, remoteAddress);
+            }
         }
     }
 
@@ -1053,6 +1067,14 @@ abstract class NeoLinkAPIBase implements AutoCloseable {
             throw new IOException("NeoLinkAPI 隧道已经停止，无法创建新的转发连接。");
         }
         return executor;
+    }
+
+    private Future<?> submitRequiredWorker(ExecutorService executor, Runnable task) throws IOException {
+        try {
+            return executor.submit(task);
+        } catch (RejectedExecutionException e) {
+            throw new IOException("NeoLinkAPI worker pool is saturated; refusing a new tunnel task.", e);
+        }
     }
 
     @Override

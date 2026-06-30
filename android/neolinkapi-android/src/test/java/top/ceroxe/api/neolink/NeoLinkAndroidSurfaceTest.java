@@ -2,6 +2,13 @@ package top.ceroxe.api.neolink;
 
 import org.junit.Test;
 
+import top.ceroxe.api.neolink.network.threads.CheckAliveThread;
+import top.ceroxe.api.neolink.network.threads.TCPTransformer;
+import top.ceroxe.api.neolink.network.threads.UDPTransformer;
+
+import java.net.DatagramSocket;
+import java.net.Socket;
+
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
@@ -47,5 +54,13 @@ public class NeoLinkAndroidSurfaceTest {
         assertSame(api, api.bindAndroidLog());
         assertSame(api, api.bindAndroidLog("NeoLink-Android"));
         assertThrows(IllegalArgumentException.class, () -> api.bindAndroidLog(" "));
+    }
+
+    @Test
+    public void androidUsesSharedTransportImplementationsWithoutPlatformSpecificForks() {
+        assertNotNull(new TCPTransformer((Socket) null, null, false));
+        assertNotNull(new UDPTransformer((DatagramSocket) null, null));
+        assertNotNull(new CheckAliveThread(() -> null, () -> 0L, 1000, (message, cause) -> {
+        }));
     }
 }

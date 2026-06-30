@@ -1,9 +1,5 @@
-import java.time.Duration
-import java.time.temporal.ChronoUnit
-
 plugins {
     base
-    id("com.gradleup.nmcp.aggregation") version "1.4.4"
 }
 
 repositories {
@@ -11,21 +7,9 @@ repositories {
 }
 
 group = "top.ceroxe.api"
-version = "7.2.3"
+version = "7.2.4"
 
 val apiVersion = version.toString()
-
-nmcpAggregation {
-    centralPortal {
-        username.set(providers.gradleProperty("centralUsername"))
-        password.set(providers.gradleProperty("centralPassword"))
-        publishingType = "AUTOMATIC"
-        publicationName = "NeoLinkAPI-$version"
-        validationTimeout = Duration.of(30, ChronoUnit.MINUTES)
-    }
-
-    publishAllProjectsProbablyBreakingProjectIsolation()
-}
 
 subprojects {
     group = rootProject.group
@@ -187,6 +171,7 @@ project(":desktop") {
         "api"(project(":shared"))
         "api"("top.ceroxe.api:ceroxe-core-shared:2.0.2")
         "testImplementation"("org.junit.jupiter:junit-jupiter:5.10.2")
+        "testRuntimeOnly"("org.junit.jupiter:junit-jupiter-engine:5.10.2")
     }
 
     val sourceSets = extensions.getByType<SourceSetContainer>()

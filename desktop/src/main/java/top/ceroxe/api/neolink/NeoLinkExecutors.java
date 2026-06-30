@@ -4,11 +4,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicInteger;
 
 final class NeoLinkExecutors {
-    private static final AtomicInteger WORKER_THREAD_ID = new AtomicInteger(1);
+    private static final int DEFAULT_MAX_PLATFORM_WORKERS = 256;
+    private static final String MAX_PLATFORM_WORKERS_PROPERTY = "neolink.desktop.maxWorkerThreads";
 
     private NeoLinkExecutors() {
     }
@@ -19,12 +18,14 @@ final class NeoLinkExecutors {
             return virtualThreadExecutor;
         }
 
-        ThreadFactory threadFactory = task -> {
-            Thread thread = new Thread(task, "neolink-desktop-worker-" + WORKER_THREAD_ID.getAndIncrement());
-            thread.setDaemon(true);
-            return thread;
-        };
-        return Executors.newCachedThreadPool(threadFactory);
+        return NeoLinkWorkerExecutors.createBoundedDaemonExecutor(
+                "neolink-desktop-worker-",
+                maxPlatformWorkers()
+        );
+    }
+
+    private static int maxPlatformWorkers() {
+        return Integer.getInteger(MAX_PLATFORM_WORKERS_PROPERTY, DEFAULT_MAX_PLATFORM_WORKERS);
     }
 
     private static ExecutorService tryCreateVirtualThreadExecutor() {

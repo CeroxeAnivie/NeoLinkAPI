@@ -16,7 +16,7 @@
       </GradleProjectSettings>
       <GradleProjectSettings>
         <option name="externalProjectPath" value="$PROJECT_DIR$/android/neolinkapi-android" />
-        <option name="gradleJvm" value="zulu-17" />
+        <option name="gradleJvm" value="#JAVA_HOME" />
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$/android/neolinkapi-android" />

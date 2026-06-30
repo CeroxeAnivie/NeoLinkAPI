@@ -6,9 +6,6 @@ import android.util.Log;
 import java.net.InetSocketAddress;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadFactory;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Android entry point for NeoLinkAPI.
@@ -19,7 +16,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class NeoLinkAPI extends NeoLinkAPIBase {
     private static final String DEFAULT_ANDROID_LOG_TAG = "NeoLinkAPI";
     private static final String DEFAULT_UPDATE_CLIENT_TYPE = "jar";
-    private static final AtomicInteger WORKER_THREAD_ID = new AtomicInteger(1);
+    private static final int DEFAULT_MAX_ANDROID_WORKERS = 64;
+    private static final String MAX_ANDROID_WORKERS_PROPERTY = "neolink.android.maxWorkerThreads";
 
     public NeoLinkAPI(NeoLinkCfg cfg) {
         super(cfg, NeoLinkAPI::defaultDebugSink);
@@ -63,12 +61,14 @@ public final class NeoLinkAPI extends NeoLinkAPIBase {
 
     @Override
     protected ExecutorService createWorkerExecutor() {
-        ThreadFactory threadFactory = task -> {
-            Thread thread = new Thread(task, "neolink-android-worker-" + WORKER_THREAD_ID.getAndIncrement());
-            thread.setDaemon(true);
-            return thread;
-        };
-        return Executors.newCachedThreadPool(threadFactory);
+        return NeoLinkWorkerExecutors.createBoundedDaemonExecutor(
+                "neolink-android-worker-",
+                maxAndroidWorkers()
+        );
+    }
+
+    private static int maxAndroidWorkers() {
+        return Integer.getInteger(MAX_ANDROID_WORKERS_PROPERTY, DEFAULT_MAX_ANDROID_WORKERS);
     }
 
     @Override

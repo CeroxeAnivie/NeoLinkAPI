@@ -2,7 +2,7 @@
 
 Android 版适合直接嵌入 App、前台服务或其他移动端宿主。接入前先记住一条硬约束：`NeoLinkAPI.start()` 是长运行阻塞方法，而且 **不能在主线程调用**。
 
-Android 产物坐标是 `top.ceroxe.api:neolinkapi-android:7.2.3`。共享模型与 NKM 节点工具坐标是 `top.ceroxe.api:neolinkapi-shared:7.2.3`，其中包含 `NodeFetcher`、`NeoNode` 和 `NeoLinkCfg`。不要在 Android 项目中依赖桌面 JVM 产物 `top.ceroxe.api:neolinkapi-desktop`。
+Android 产物坐标是 `top.ceroxe.api:neolinkapi-android:7.2.4`。共享模型与 NKM 节点工具坐标是 `top.ceroxe.api:neolinkapi-shared:7.2.4`，其中包含 `NodeFetcher`、`NeoNode` 和 `NeoLinkCfg`。不要在 Android 项目中依赖桌面 JVM 产物 `top.ceroxe.api:neolinkapi-desktop`。
 
 源码层面，Android 产物会编译 `common/` 中的内部运行时实现，以及 `shared/` 中的公开公共 API。`protocol/` 保存协议契约、fixtures 和版本元数据。
 

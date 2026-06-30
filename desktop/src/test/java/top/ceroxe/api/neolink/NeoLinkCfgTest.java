@@ -7,7 +7,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -71,19 +73,44 @@ class NeoLinkCfgTest {
         assertFalse(cfg.isDebugMsg());
         assertEquals(NeoLinkCfg.ZH_CH, cfg.getLanguage());
         assertEquals(NeoLinkAPI.version(), cfg.getClientVersion());
-        assertEquals("7.2.3", NeoLinkAPI.version());
+        assertEquals("7.2.4", NeoLinkAPI.version());
     }
 
     @Test
     @DisplayName("desktop executor 在 Java 21+ 使用虚拟线程，Java 17 使用兼容后端")
     void desktopExecutorUsesBestAvailableRuntimeThreadModel() throws Exception {
-            ExecutorService executor = NeoLinkExecutors.createDesktopWorkerExecutor();
+        ExecutorService executor = NeoLinkExecutors.createDesktopWorkerExecutor();
         try {
             CompletableFuture<Boolean> virtualThread = new CompletableFuture<>();
             executor.submit(() -> virtualThread.complete(currentThreadIsVirtual()));
 
             assertEquals(Runtime.version().feature() >= 21, virtualThread.get(3, TimeUnit.SECONDS));
         } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("bounded worker executor must reject excess platform tasks instead of growing without limit")
+    void boundedWorkerExecutorRejectsExcessTasks() throws Exception {
+        ExecutorService executor = NeoLinkWorkerExecutors.createBoundedDaemonExecutor("neolink-test-worker-", 1);
+        CompletableFuture<Void> blockerStarted = new CompletableFuture<>();
+        CountDownLatch releaseBlocker = new CountDownLatch(1);
+        try {
+            executor.submit(() -> {
+                blockerStarted.complete(null);
+                try {
+                    releaseBlocker.await();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            });
+            blockerStarted.get(3, TimeUnit.SECONDS);
+
+            assertThrows(RejectedExecutionException.class, () -> executor.submit(() -> {
+            }));
+        } finally {
+            releaseBlocker.countDown();
             executor.shutdownNow();
         }
     }

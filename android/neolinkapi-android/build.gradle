@@ -17,13 +17,13 @@ plugins {
     id 'base'
     id 'maven-publish'
     id 'signing'
-    id 'com.gradleup.nmcp' version '1.4.4'
+    id 'com.gradleup.nmcp' version '1.5.0'
 }
 
 apply plugin: 'com.android.library'
 
 group = 'top.ceroxe.api'
-version = '7.2.3'
+version = '7.2.4'
 
 nmcp {
     publishAllPublicationsToCentralPortal {
@@ -36,17 +36,17 @@ nmcp {
 }
 
 android {
-    namespace 'top.ceroxe.api.android.neolink'
-    compileSdk 36
+    namespace = 'top.ceroxe.api.android.neolink'
+    compileSdk = 36
 
     defaultConfig {
-        minSdk 33
-        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        minSdk = 33
+        testInstrumentationRunner = 'androidx.test.runner.AndroidJUnitRunner'
         consumerProguardFiles 'consumer-rules.pro'
     }
 
     buildFeatures {
-        buildConfig false
+        buildConfig = false
     }
 
     compileOptions {
@@ -86,7 +86,7 @@ android {
     }
 
     lint {
-        abortOnError true
+        abortOnError = true
     }
 }
 
